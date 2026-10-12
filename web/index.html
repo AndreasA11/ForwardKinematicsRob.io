@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PENDULARM // Planar Dynamics & Kinematics Studio</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M12 3v6M12 15v6M3 12h6M15 12h6"></path>
+            <circle cx="12" cy="21" r="2" fill="currentColor"></circle>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">PENDULARM</span>
+          <span class="brand-subtitle">Planar Dynamics & Kinematics Studio</span>
+        </div>
+      </div>
+
+      <div class="nav-center">
+        <!-- Play / Pause / Reset Quick Bar -->
+        <button id="btnPlayPause" class="btn btn-primary" title="Toggle Play / Pause (Space)">
+          <span id="playIcon">⏸ Pause</span>
+        </button>
+        <button id="btnStep" class="btn btn-secondary" title="Single Physics Step">
+          <span>⏯ Step</span>
+        </button>
+        <button id="btnReset" class="btn btn-danger" title="Reset Simulation (R)">
+          <span>↺ Reset</span>
+        </button>
+        <div class="divider-v"></div>
+        <button id="btnToggleTrail" class="btn btn-outline active" title="Toggle Motion Trail">
+          <span>✨ Trail</span>
+        </button>
+        <button id="btnClearTrail" class="btn btn-ghost" title="Clear Motion Trail">
+          <span>Clear</span>
+        </button>
+      </div>
+
+      <div class="nav-status">
+        <!-- Arm Link Selector -->
+        <div class="mode-switch">
+          <button id="btnMode2Link" class="mode-btn active" title="Switch to 2-Link Arm">2-Link</button>
+          <button id="btnMode3Link" class="mode-btn" title="Switch to 3-Link Arm">3-Link</button>
+        </div>
+
+        <div class="status-indicator" id="connStatus" title="WebSocket / Rosbridge Gateway Status">
+          <span class="status-dot disconnected"></span>
+          <span class="status-label">Connecting...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace Grid -->
+    <main class="workspace">
+      <!-- Left Stage: Interactive 2D Canvas + Overlays -->
+      <section class="stage-container">
+        <div class="canvas-wrapper" id="canvasWrapper">
+          <canvas id="armCanvas"></canvas>
+
+          <!-- Canvas Top-Left Telemetry HUD -->
+          <div class="hud hud-top-left">
+            <div class="hud-item">
+              <span class="hud-label">SIM TIME</span>
+              <span class="hud-val" id="hudSimTime">0.000 s</span>
+            </div>
+            <div class="hud-item">
+              <span class="hud-label">INTEGRATOR</span>
+              <span class="hud-val accent" id="hudIntegrator">RK4</span>
+            </div>
+            <div class="hud-item">
+              <span class="hud-label">DT</span>
+              <span class="hud-val" id="hudDt">5.0 ms</span>
+            </div>
+            <div class="hud-item">
+              <span class="hud-label">FPS</span>
+              <span class="hud-val" id="hudFps">60</span>
+            </div>
+          </div>
+
+          <!-- Canvas Top-Right End-Effector Pose HUD -->
+          <div class="hud hud-top-right">
+            <div class="hud-item">
+              <span class="hud-label">EE X</span>
+              <span class="hud-val highlight" id="hudEeX">0.000 m</span>
+            </div>
+            <div class="hud-item">
+              <span class="hud-label">EE Y</span>
+              <span class="hud-val highlight" id="hudEeY">0.000 m</span>
+            </div>
+            <div class="hud-item" id="hudPhiContainer">
+              <span class="hud-label">EE Φ</span>
+              <span class="hud-val highlight" id="hudEePhi">0.0°</span>
+            </div>
+            <div class="hud-item">
+              <span class="hud-label">TOTAL ENERGY</span>
+              <span class="hud-val" id="hudEnergy">0.00 J</span>
+            </div>
+          </div>
+
+          <!-- Canvas Bottom Toolbar -->
+          <div class="canvas-controls">
+            <span class="canvas-hint" id="canvasHint">💡 Click & drag canvas to set IK Target</span>
+            <div class="btn-group">
+              <button id="btnZoomIn" class="btn-icon" title="Zoom In">+</button>
+              <button id="btnZoomOut" class="btn-icon" title="Zoom Out">−</button>
+              <button id="btnResetView" class="btn-icon" title="Reset View">⊙</button>
+            </div>
+          </div>
+
+          <!-- Interactive Action / Trial Floating Banner -->
+          <div id="trialFloatingBanner" class="floating-banner hidden">
+            <div class="banner-icon">🎯</div>
+            <div class="banner-body">
+              <div class="banner-title" id="floatingBannerTitle">IK TRIAL IN PROGRESS</div>
+              <div class="banner-subtitle" id="floatingBannerSubtitle">Target reached: 0 | Time remaining: 20.0s</div>
+            </div>
+            <div class="banner-gauge-container">
+              <div id="floatingBannerGauge" class="banner-gauge-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry Graphs Drawer -->
+        <div class="charts-container" id="chartsContainer">
+          <div class="charts-header">
+            <div class="chart-tabs">
+              <button class="chart-tab active" data-chart="angles">Joint Angles (q)</button>
+              <button class="chart-tab" data-chart="velocities">Velocities (q̇)</button>
+              <button class="chart-tab" data-chart="efforts">Torques (τ)</button>
+              <button class="chart-tab" data-chart="energy">Energy (T, V, E)</button>
+            </div>
+            <div class="chart-legend" id="chartLegend">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+          <div class="chart-canvas-wrapper">
+            <canvas id="telemetryChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Deck: Multi-Tab Controls -->
+      <aside class="control-deck">
+        <!-- Deck Navigation Tabs -->
+        <div class="deck-tabs">
+          <button class="deck-tab active" data-tab="sim">Physics</button>
+          <button class="deck-tab" data-tab="pid">PID</button>
+          <button class="deck-tab" data-tab="ik">IK</button>
+          <button class="deck-tab" data-tab="action">Action</button>
+          <button class="deck-tab" data-tab="trial">Trial</button>
+          <button class="deck-tab" data-tab="ode">ODE Step</button>
+        </div>
+
+        <div class="deck-content">
+          <!-- ================= TAB 1: SIMULATION & DYNAMICS ================= -->
+          <div class="tab-pane active" id="pane-sim">
+            <div class="panel-section">
+              <h3 class="section-title">Numerical Integrator</h3>
+              <div class="form-group">
+                <label>Method</label>
+                <div class="radio-cards">
+                  <label class="radio-card">
+                    <input type="radio" name="integratorMethod" value="rk4" checked>
+                    <span class="card-label">RK4</span>
+                    <span class="card-desc">4th Order Runge-Kutta</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="integratorMethod" value="verlet">
+                    <span class="card-label">Verlet</span>
+                    <span class="card-desc">Symplectic Energy-Conserving</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="integratorMethod" value="midpoint">
+                    <span class="card-label">Midpoint</span>
+                    <span class="card-desc">2nd Order Runge-Kutta</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="integratorMethod" value="euler">
+                    <span class="card-label">Euler</span>
+                    <span class="card-desc">1st Order Explicit</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="slider-label-row">
+                  <label>Timestep (dt)</label>
+                  <span class="slider-val" id="valTimestep">0.005 s</span>
+                </div>
+                <input type="range" id="sliderTimestep" min="0.001" max="0.02" step="0.001" value="0.005">
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Physical Environment</h3>
+              <div class="form-group">
+                <div class="slider-label-row">
+                  <label>Gravity (g)</label>
+                  <span class="slider-val" id="valGravity">9.81 m/s²</span>
+                </div>
+                <input type="range" id="sliderGravity" min="0" max="25" step="0.1" value="9.81">
+                <div class="btn-group-sm mt-1">
+                  <button class="btn btn-sm btn-ghost" data-gravity="0">Zero-G (0.0)</button>
+                  <button class="btn btn-sm btn-ghost" data-gravity="1.62">Moon (1.62)</button>
+                  <button class="btn btn-sm btn-ghost" data-gravity="9.81">Earth (9.81)</button>
+                  <button class="btn btn-sm btn-ghost" data-gravity="24.79">Jupiter (24.8)</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <h4 class="sub-title">Link Lengths (meters)</h4>
+                <div id="linkLengthSliders">
+                  <!-- Dynamically populated based on 2 or 3 links -->
+                </div>
+              </div>
+
+              <div class="form-group">
+                <h4 class="sub-title">Link Masses (kg)</h4>
+                <div id="linkMassSliders">
+                  <!-- Dynamically populated based on 2 or 3 links -->
+                </div>
+              </div>
+
+              <button id="btnApplyParams" class="btn btn-secondary btn-block">Apply Physical Parameters</button>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Initial Condition Drops</h3>
+              <p class="section-desc">Drop the arm from unstable states to observe non-linear chaotic dynamics:</p>
+              <div class="grid-2">
+                <button id="btnDropHorizontal" class="btn btn-outline btn-sm">Horizontal Drop (Chaos)</button>
+                <button id="btnDropUpright" class="btn btn-outline btn-sm">Inverted Standup</button>
+                <button id="btnDropHanging" class="btn btn-outline btn-sm">Bottom Equilibrium</button>
+                <button id="btnKickArm" class="btn btn-outline btn-sm">Perturb / Kick</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= TAB 2: PID CONTROLLER ================= -->
+          <div class="tab-pane" id="pane-pid">
+            <div class="panel-section">
+              <div class="toggle-header">
+                <div>
+                  <h3 class="section-title">Joint PID Controller</h3>
+                  <span class="section-desc">Computes τ = Kp·e + Ki·∫e + Kd·ė</span>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="chkPidEnable">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+              <div class="status-banner" id="pidStatusBanner">PID Controller is DISABLED (Free Swing)</div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Joint Setpoints (/joint_trajectory)</h3>
+              <div id="jointSetpointSliders">
+                <!-- Dynamically generated for joint 1, 2, [3] -->
+              </div>
+              <div class="btn-group-sm mt-2">
+                <button id="btnSendTrajectory" class="btn btn-primary btn-sm">Send Setpoint Trajectory</button>
+                <button id="btnZeroSetpoints" class="btn btn-ghost btn-sm">Zero Setpoints</button>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">PID Gains Tuning</h3>
+              <div class="tabs-sub">
+                <button class="tab-sub active" data-sub="kp">Kp (Proportional)</button>
+                <button class="tab-sub" data-sub="ki">Ki (Integral)</button>
+                <button class="tab-sub" data-sub="kd">Kd (Derivative)</button>
+              </div>
+
+              <div id="gainsContainer" class="mt-2">
+                <!-- Dynamically populated sliders for Kp, Ki, Kd per joint -->
+              </div>
+
+              <div class="btn-group-sm mt-3">
+                <button id="btnApplyGains" class="btn btn-secondary btn-sm">Apply Gains</button>
+                <button id="btnPresetStiff" class="btn btn-ghost btn-sm">Preset: Stiff</button>
+                <button id="btnPresetSoft" class="btn btn-ghost btn-sm">Preset: Soft</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= TAB 3: INVERSE KINEMATICS ================= -->
+          <div class="tab-pane" id="pane-ik">
+            <div class="panel-section">
+              <h3 class="section-title">Planar Analytical IK Solver</h3>
+              <span class="section-desc">Solves closed-form joint angles q for target end-effector pose (x, y, [φ]).</span>
+
+              <div class="form-row mt-2">
+                <div class="form-col">
+                  <label>Target X (m)</label>
+                  <input type="number" id="ikTargetX" step="0.05" value="1.0">
+                </div>
+                <div class="form-col">
+                  <label>Target Y (m)</label>
+                  <input type="number" id="ikTargetY" step="0.05" value="0.5">
+                </div>
+              </div>
+
+              <div class="form-group mt-2" id="ikPhiRow">
+                <label>Desired End-Effector Orientation Φ (deg)</label>
+                <div class="slider-label-row">
+                  <input type="range" id="ikTargetPhiSlider" min="-180" max="180" step="1" value="0">
+                  <span class="slider-val" id="ikTargetPhiVal">0.0°</span>
+                </div>
+              </div>
+
+              <div class="btn-group-sm mt-2">
+                <button id="btnSolveIk" class="btn btn-primary btn-block">Solve Inverse Kinematics</button>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">IK Solution</h3>
+              <div id="ikResultCard" class="result-card">
+                <div class="empty-state">Enter target coordinates or click on the canvas to compute IK solution.</div>
+              </div>
+              <button id="btnApplyIkToPid" class="btn btn-secondary btn-block mt-2 hidden">Drive Arm to Solved Configuration</button>
+            </div>
+          </div>
+
+          <!-- ================= TAB 4: IK ACTION SERVER ================= -->
+          <div class="tab-pane" id="pane-action">
+            <div class="panel-section">
+              <h3 class="section-title">IK Action Client (/ik_action)</h3>
+              <span class="section-desc">Commands the arm to Cartesian target with tolerance and dwell verification.</span>
+
+              <div class="form-row mt-2">
+                <div class="form-col">
+                  <label>Target X (m)</label>
+                  <input type="number" id="actionTargetX" step="0.05" value="1.2">
+                </div>
+                <div class="form-col">
+                  <label>Target Y (m)</label>
+                  <input type="number" id="actionTargetY" step="0.05" value="0.4">
+                </div>
+              </div>
+
+              <div class="form-row mt-2" id="actionPhiRow">
+                <div class="form-col">
+                  <label>Orientation Φ (deg)</label>
+                  <input type="number" id="actionTargetPhi" step="5" value="0">
+                </div>
+              </div>
+
+              <div class="form-row mt-2">
+                <div class="form-col">
+                  <label>Epsilon ε (m)</label>
+                  <input type="number" id="actionEpsilon" step="0.01" value="0.05" min="0.001">
+                </div>
+                <div class="form-col">
+                  <label>Success Hold (s)</label>
+                  <input type="number" id="actionSuccessHold" step="0.05" value="0.25" min="0">
+                </div>
+              </div>
+
+              <div class="btn-group mt-3">
+                <button id="btnSendGoal" class="btn btn-primary flex-1">Send Goal</button>
+                <button id="btnCancelGoal" class="btn btn-danger">Cancel Goal</button>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Live Action Feedback</h3>
+              <div id="actionFeedbackCard" class="card-status">
+                <div class="card-row">
+                  <span class="label">Status:</span>
+                  <span class="badge" id="actionStatusBadge">IDLE</span>
+                </div>
+                <div class="card-row">
+                  <span class="label">Goal ID:</span>
+                  <span class="val font-mono" id="actionGoalId">—</span>
+                </div>
+                <div class="card-row">
+                  <span class="label">Distance Remaining:</span>
+                  <span class="val font-mono" id="actionDistance">0.000 m</span>
+                </div>
+                <div class="progress-bar-container mt-1">
+                  <div id="actionProgressBar" class="progress-bar-fill"></div>
+                </div>
+              </div>
+
+              <h4 class="sub-title mt-3">Last Result</h4>
+              <div id="actionResultCard" class="card-status mt-1">
+                <div class="empty-state">No recent action completed yet.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= TAB 5: IK TRIAL BENCHMARK ================= -->
+          <div class="tab-pane" id="pane-trial">
+            <div class="panel-section">
+              <h3 class="section-title">Automated IK Trial Benchmark</h3>
+              <span class="section-desc">Orchestrates randomized reachable targets to benchmark tracking throughput.</span>
+
+              <div class="form-row mt-2">
+                <div class="form-col">
+                  <label>Duration (s)</label>
+                  <input type="number" id="trialDuration" step="1" value="20" min="2">
+                </div>
+                <div class="form-col">
+                  <label>Epsilon ε (m)</label>
+                  <input type="number" id="trialEpsilon" step="0.01" value="0.05" min="0.001">
+                </div>
+                <div class="form-col">
+                  <label>Hold Time (s)</label>
+                  <input type="number" id="trialHold" step="0.05" value="0.25" min="0">
+                </div>
+              </div>
+
+              <div class="btn-group mt-3">
+                <button id="btnStartTrial" class="btn btn-success flex-1">▶ Start Trial</button>
+                <button id="btnSkipTrial" class="btn btn-warning">⏭ Skip</button>
+                <button id="btnStopTrial" class="btn btn-danger">⏹ Stop</button>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">Trial Scoreboard</h3>
+              <div class="score-card">
+                <div class="score-number" id="trialScore">0</div>
+                <div class="score-label">TARGETS REACHED</div>
+              </div>
+
+              <div class="trial-details mt-2">
+                <div class="card-row">
+                  <span class="label">Elapsed:</span>
+                  <span class="val font-mono" id="trialElapsed">0.0 / 20.0 s</span>
+                </div>
+                <div class="progress-bar-container mt-1">
+                  <div id="trialProgressBar" class="progress-bar-fill"></div>
+                </div>
+                <div class="card-row mt-2">
+                  <span class="label">Target Coordinates:</span>
+                  <span class="val font-mono" id="trialTargetCoord">—</span>
+                </div>
+                <div class="card-row">
+                  <span class="label">Current Error:</span>
+                  <span class="val font-mono" id="trialError">—</span>
+                </div>
+                <div class="card-row">
+                  <span class="label">Action State:</span>
+                  <span class="badge" id="trialActionState">idle</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ================= TAB 6: ARBITRARY ODE INTEGRATOR PLAYGROUND ================= -->
+          <div class="tab-pane" id="pane-ode">
+            <div class="panel-section">
+              <h3 class="section-title">ODE Expression Stepper</h3>
+              <span class="section-desc">Evaluates arbitrary differential equations ẍ = f(t, x, v) using /arm_sim/integration_step.</span>
+
+              <div class="form-group mt-2">
+                <label>Expression f(t, x, v)</label>
+                <input type="text" id="odeExpression" class="font-mono" value="-9.81 * sin(x) - 0.2 * v">
+                <span class="field-hint">Supports +, -, *, /, ^, sin, cos, exp, log, abs, sqrt, ( )</span>
+              </div>
+
+              <div class="form-row mt-2">
+                <div class="form-col">
+                  <label>t0</label>
+                  <input type="number" id="odeT0" value="0.0" step="0.1">
+                </div>
+                <div class="form-col">
+                  <label>x0</label>
+                  <input type="number" id="odeX0" value="1.57" step="0.1">
+                </div>
+                <div class="form-col">
+                  <label>v0</label>
+                  <input type="number" id="odeV0" value="0.0" step="0.1">
+                </div>
+                <div class="form-col">
+                  <label>dt</label>
+                  <input type="number" id="odeDt" value="0.01" step="0.005">
+                </div>
+              </div>
+
+              <div class="form-group mt-2">
+                <label>Method</label>
+                <select id="odeMethod" class="form-select">
+                  <option value="rk4">Runge-Kutta 4th Order (rk4)</option>
+                  <option value="verlet">Velocity Verlet (verlet)</option>
+                  <option value="midpoint">Midpoint (midpoint)</option>
+                  <option value="euler">Explicit Euler (euler)</option>
+                </select>
+              </div>
+
+              <div class="btn-group mt-2">
+                <button id="btnOdeStep" class="btn btn-primary flex-1">Compute Single Step</button>
+                <button id="btnOdeSimulate" class="btn btn-secondary">Simulate 500 Steps</button>
+              </div>
+            </div>
+
+            <div class="panel-section">
+              <h3 class="section-title">ODE Step Result</h3>
+              <div id="odeResultCard" class="card-status font-mono">
+                <div>Ready to evaluate expression.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
