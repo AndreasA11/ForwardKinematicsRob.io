@@ -28,3 +28,5 @@ Everything you need for Project 3, without the rest of the course repo.
   `./make_submission.sh <c|cpp|python|rust>` to produce a correctly shaped
   `submission.tar.gz`. Its `Makefile` is at the archive root, which is what the autograder
   expects.
+
+status:finsihed main project, still need to do portfolio
