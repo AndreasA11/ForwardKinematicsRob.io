@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<robot name="primitive_bot">
+  <!-- Base pedestal: Box geometry -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.4 0.1"/>
+      </geometry>
+      <material name="dark_gray">
+        <color rgba="0.25 0.25 0.28 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Turret: Cylinder geometry rotated around Z -->
+  <joint name="turret_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="turret_link"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10.0" velocity="2.0"/>
+  </joint>
+  <link name="turret_link">
+    <visual>
+      <origin xyz="0 0 0.1" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.08" length="0.2"/>
+      </geometry>
+      <material name="primary_blue">
+        <color rgba="0.15 0.45 0.85 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Shoulder Joint & Upper Arm: Box geometry -->
+  <joint name="shoulder_joint" type="revolute">
+    <parent link="turret_link"/>
+    <child link="upper_arm_link"/>
+    <origin xyz="0 0 0.2" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
+  </joint>
+  <link name="upper_arm_link">
+    <visual>
+      <origin xyz="0 0 0.2" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.08 0.4"/>
+      </geometry>
+      <material name="accent_orange">
+        <color rgba="0.95 0.5 0.1 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Elbow Joint & Forearm: Cylinder & Sphere -->
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <origin xyz="0 0 0.4" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.5" upper="2.5" effort="10.0" velocity="2.0"/>
+  </joint>
+  <link name="forearm_link">
+    <visual>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.05" length="0.3"/>
+      </geometry>
+      <material name="teal_green">
+        <color rgba="0.1 0.75 0.6 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- End Effector: Sphere geometry -->
+  <joint name="ee_joint" type="fixed">
+    <parent link="forearm_link"/>
+    <child link="ee_link"/>
+    <origin xyz="0 0 0.3" rpy="0 0 0"/>
+  </joint>
+  <link name="ee_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.07"/>
+      </geometry>
+      <material name="bright_gold">
+        <color rgba="0.98 0.8 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+</robot>

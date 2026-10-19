@@ -1,4 +1,4 @@
-.PHONY: build run demo clean test test-tcp
+.PHONY: build run demo clean test test-tcp viewer
 PUGIXML := third_party/pugixml
 build: main build/urdf_example
 
@@ -77,5 +77,8 @@ run: main
 # *CHANGES*: Start Task 10's servo only for the portfolio demo.
 demo: main
 	./main --demo
+# *CHANGES*: Launch Task 13 external 3D robot viewer and portfolio server.
+viewer:
+	python3 scripts/viewer.py
 clean:
 	rm -rf main build

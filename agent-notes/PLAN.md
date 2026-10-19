@@ -508,3 +508,85 @@ Integrate all Project 3 components, enforce Make target contracts (`make build`,
 
 1. Unit and direct integration suite (`make test`) running all 9 standalone test targets.
 2. Comprehensive end-to-end black-box TCP test suite (`make test-tcp` / `tests/runtime_topic_tcp.py`) exercising all 12 integration items over real TCP connections on port 9095 against `make run` and `make demo`.
+
+---
+
+# Task 13: External robot viewer and portfolio demonstration
+
+## Goal
+
+Build a modular external 3D viewer for Project 3 that consumes `/xform_world` and robot descriptions over the existing TCP/JSON protocol without adding UI or WebSocket dependencies to the core runtime, and provide a comprehensive course portfolio page demonstrating an FSM choreography.
+
+## Relevant requirements
+
+- Connect to the existing TCP/JSON gateway (127.0.0.1:9095) using the project's supported protocol without introducing a WebSocket gateway into the graded runtime.
+- Load or obtain the active robot description via parameter server services (`/param_server/get_param` and `/param_server/set_param`).
+- Parse and render visual geometry: support box (`<box size="x y z"/>`), cylinder (`<cylinder radius="r" length="l"/>`), and sphere (`<sphere radius="r"/>`) at a minimum. Provide clean proxy/fallback rendering for mesh visual elements when files are unresolved.
+- Update each link's 3D pose in real time from `/xform_world`.
+- Interpret the 16-element transform matrices in column-major order (`matrix[4*c + r] = M[r][c]`), matching Three.js `Matrix4.fromArray`.
+- Render the robot in standard robotics coordinate convention (Z-up, X-forward, Y-left), applying any rendering adjustments only in the viewer without altering `/xform_world`.
+- Handle robot description reloads or refreshed models without retaining stale link visual objects.
+- Allow configuring, starting, pausing, and monitoring FSM choreographies (services `/fsm/update_logic`, `/fsm/set_running`, `/fsm/fire_transition`, `/fsm/save_to_file`, `/fsm/load_from_file`, `/joint_state_publisher/reset`).
+- Add a portfolio deliverable web page embedding a video of the robot performing the choreography, complete with robot description, choreography explanation, transform pipeline details, and required credit: `Fetch robot description © Fetch Robotics, Inc., CC BY-NC-SA 4.0`.
+
+## Repository observations
+
+- The C++ runtime communicates exclusively over raw TCP on 127.0.0.1:9095 using newline-delimited JSON messages.
+- The `web/` directory currently contains an obsolete 2D planar arm simulator from Project 2.
+- `scripts/visualizer.py` contains Project 2 artifacts that launch `build/arm_sim`.
+- Three.js and OrbitControls are now vendored locally in `web/js/` for offline rendering.
+- `fetch/fetch.urdf` contains a 26-link Fetch robot description. `fsm/` is the designated directory for choreography files.
+- The browser cannot directly open raw TCP sockets; an external Python bridge process communicates via raw TCP to 127.0.0.1:9095 and provides HTTP/Server-Sent Events (SSE) and REST endpoints to the browser, completely avoiding WebSocket gateways.
+
+## Proposed architecture
+
+1. **Viewer Backend (`scripts/viewer.py`)**:
+   - Manages a persistent TCP client connection to `127.0.0.1:9095` speaking the documented rosbridge JSON protocol.
+   - Subscribes to `/xform_world`, `/tf`, `/joint_states`, and `/fsm/status`.
+   - Provides HTTP Server-Sent Events (`/events`) streaming updates to the browser frontend in real time over standard HTTP/1.1.
+   - Provides HTTP endpoints for service invocation (`/api/call_service`, `/api/load_urdf`, `/api/fsm/...`), forwarding requests to the C++ runtime and returning responses.
+   - Serves static assets from `web/` and `portfolio/`.
+   - Independent from the graded C++ runtime.
+
+2. **3D Web Frontend (`web/index.html`, `web/viewer.js`, `web/viewer.css`)**:
+   - Uses Three.js and OrbitControls configured with Z-up coordinates.
+   - Parses URDF visual elements from the loaded description: creates Three.js geometries for `<box>`, `<cylinder>`, `<sphere>`, and stylized mesh proxies with `<material>` colors.
+   - Subscribes to the SSE stream. On every `/xform_world` update, maps column-major 4x4 matrices directly onto link `object.matrix` with `matrixAutoUpdate = false`.
+   - Purges stale link objects whenever the robot model or link set changes.
+   - Provides interactive controls to load Fetch and custom URDFs, inspect link transforms, control joint servo / reset, start/pause FSM choreography, and trigger manual transitions.
+   - Features a built-in Canvas Video Recorder using `MediaRecorder` API allowing the user to capture the 3D choreography motion in-browser and save video.
+
+3. **Choreography Definition (`fsm/fetch_dance.json`, `fsm/arm_wave.json`)**:
+   - Creates a multi-state choreography for Fetch exercising torso lift, arm reach, wave, and nod with verified `epsilon` tolerances and automatic cyclical transitions.
+
+4. **Course Portfolio Page (`portfolio/index.html`, `portfolio/style.css`)**:
+   - Professional portfolio page embedding the choreography video.
+   - Detailed technical documentation explaining the robot, kinematics pipeline, column-major matrix interpretation, FSM choreography states, and viewer rendering logic.
+   - Displays the mandatory copyright attribution: `Fetch robot description © Fetch Robotics, Inc., CC BY-NC-SA 4.0`.
+
+## Implementation steps
+
+1. Update `agent-notes/PLAN.md` with Task 13 specifications.
+2. Build the Fetch choreography in `fsm/fetch_dance.json` and a geometric primitive robot test in `urdf-files/primitive_bot.urdf`.
+3. Implement `scripts/viewer.py`: TCP rosbridge client, SSE streaming, HTTP REST bridge, and static file server.
+4. Implement `web/index.html`, `web/viewer.js`, and `web/viewer.css`: 3D Three.js rendering, URDF visual geometry parser, column-major matrix application, stale link cleanup, FSM controls, and video recording.
+5. Create the portfolio deliverable in `portfolio/index.html` and `portfolio/style.css` with embedded video player, technical description, and Fetch attribution.
+6. Record and generate the choreography video file.
+7. Add `viewer` target to `Makefile`.
+8. Implement end-to-end integration and smoke tests in `tests/test_viewer_e2e.py` verifying TCP connection, `/xform_world` reception, column-major matrix interpretation, and FSM choreography execution.
+9. Record implementation details in `agent-notes/IMPLEMENTATION.md`.
+
+## Edge cases and failure modes
+
+- Description reload with different link names: remove stale links immediately from the 3D scene.
+- URDF cylinder orientation: URDF defines cylinders along Z, while Three.js aligns them along Y; rotate geometry by 90 degrees around X.
+- Meshes with missing external files: gracefully fall back to stylized geometry using link color and bounding frame without throwing errors or breaking the scene.
+- FSM transition race or arrival tolerance: ensure `epsilon` is matched appropriately to servo settling accuracy.
+- Browser reconnection: on SSE reconnect, immediately request the latest robot description and current transforms.
+
+## Verification strategy
+
+- Run `make test` and `make test-tcp` to ensure zero regression on existing graded and TCP contracts.
+- Run `tests/test_viewer_e2e.py` to verify viewer backend connectivity, service proxying, `/xform_world` stream delivery, and matrix unpacking.
+- Verify browser rendering of box, cylinder, sphere, and mesh visual proxies under `make demo`.
+- Verify choreography execution and record the portfolio video.

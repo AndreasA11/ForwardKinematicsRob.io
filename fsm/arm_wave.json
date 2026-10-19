@@ -1,0 +1,65 @@
+{
+  "initial_state": "home",
+  "states": [
+    {
+      "name": "home",
+      "target": {
+        "joint_names": ["turret_joint", "shoulder_joint", "elbow_joint"],
+        "positions": [0.0, 0.0, 0.0]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "to_reach",
+      "transitions": [
+        {"name": "to_reach", "next_state": "reach_high"}
+      ]
+    },
+    {
+      "name": "reach_high",
+      "target": {
+        "joint_names": ["turret_joint", "shoulder_joint", "elbow_joint"],
+        "positions": [0.5, 0.8, -0.6]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "to_sweep_left",
+      "transitions": [
+        {"name": "to_sweep_left", "next_state": "sweep_left"}
+      ]
+    },
+    {
+      "name": "sweep_left",
+      "target": {
+        "joint_names": ["turret_joint", "shoulder_joint", "elbow_joint"],
+        "positions": [-1.0, 0.6, -0.4]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "to_sweep_right",
+      "transitions": [
+        {"name": "to_sweep_right", "next_state": "sweep_right"}
+      ]
+    },
+    {
+      "name": "sweep_right",
+      "target": {
+        "joint_names": ["turret_joint", "shoulder_joint", "elbow_joint"],
+        "positions": [1.0, 0.6, -0.4]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "to_fold",
+      "transitions": [
+        {"name": "to_fold", "next_state": "fold"}
+      ]
+    },
+    {
+      "name": "fold",
+      "target": {
+        "joint_names": ["turret_joint", "shoulder_joint", "elbow_joint"],
+        "positions": [0.0, -0.8, 1.2]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "to_home",
+      "transitions": [
+        {"name": "to_home", "next_state": "home"}
+      ]
+    }
+  ]
+}

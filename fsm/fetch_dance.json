@@ -1,0 +1,130 @@
+{
+  "initial_state": "home",
+  "states": [
+    {
+      "name": "home",
+      "target": {
+        "joint_names": [
+          "torso_lift_joint",
+          "shoulder_pan_joint",
+          "shoulder_lift_joint",
+          "upperarm_roll_joint",
+          "elbow_flex_joint",
+          "forearm_roll_joint",
+          "wrist_flex_joint",
+          "wrist_roll_joint",
+          "head_pan_joint",
+          "head_tilt_joint",
+          "r_gripper_finger_joint",
+          "l_gripper_finger_joint"
+        ],
+        "positions": [0.05, 0.0, 0.0, 0.0, 1.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      "epsilon": 0.03,
+      "on_arrival": "to_rise",
+      "transitions": [
+        {"name": "to_rise", "next_state": "rise_and_reach"}
+      ]
+    },
+    {
+      "name": "rise_and_reach",
+      "target": {
+        "joint_names": [
+          "torso_lift_joint",
+          "shoulder_pan_joint",
+          "shoulder_lift_joint",
+          "upperarm_roll_joint",
+          "elbow_flex_joint",
+          "forearm_roll_joint",
+          "wrist_flex_joint",
+          "wrist_roll_joint",
+          "head_pan_joint",
+          "head_tilt_joint",
+          "r_gripper_finger_joint",
+          "l_gripper_finger_joint"
+        ],
+        "positions": [0.35, 0.0, 0.5, 0.0, 0.3, 0.0, -0.5, 0.0, 0.0, 0.4, 0.04, 0.04]
+      },
+      "epsilon": 0.03,
+      "on_arrival": "to_wave_right",
+      "transitions": [
+        {"name": "to_wave_right", "next_state": "wave_right"}
+      ]
+    },
+    {
+      "name": "wave_right",
+      "target": {
+        "joint_names": [
+          "torso_lift_joint",
+          "shoulder_pan_joint",
+          "shoulder_lift_joint",
+          "upperarm_roll_joint",
+          "elbow_flex_joint",
+          "forearm_roll_joint",
+          "wrist_flex_joint",
+          "wrist_roll_joint",
+          "head_pan_joint",
+          "head_tilt_joint",
+          "r_gripper_finger_joint",
+          "l_gripper_finger_joint"
+        ],
+        "positions": [0.35, -0.8, 1.0, 0.5, -1.2, 0.5, 0.6, 0.8, -0.5, -0.2, 0.05, 0.05]
+      },
+      "epsilon": 0.03,
+      "on_arrival": "to_wave_left",
+      "transitions": [
+        {"name": "to_wave_left", "next_state": "wave_left"}
+      ]
+    },
+    {
+      "name": "wave_left",
+      "target": {
+        "joint_names": [
+          "torso_lift_joint",
+          "shoulder_pan_joint",
+          "shoulder_lift_joint",
+          "upperarm_roll_joint",
+          "elbow_flex_joint",
+          "forearm_roll_joint",
+          "wrist_flex_joint",
+          "wrist_roll_joint",
+          "head_pan_joint",
+          "head_tilt_joint",
+          "r_gripper_finger_joint",
+          "l_gripper_finger_joint"
+        ],
+        "positions": [0.35, 0.4, 1.0, -0.5, -0.8, -0.5, -0.6, -0.8, 0.4, -0.1, 0.02, 0.02]
+      },
+      "epsilon": 0.03,
+      "on_arrival": "to_bow",
+      "transitions": [
+        {"name": "to_bow", "next_state": "bow"}
+      ]
+    },
+    {
+      "name": "bow",
+      "target": {
+        "joint_names": [
+          "torso_lift_joint",
+          "shoulder_pan_joint",
+          "shoulder_lift_joint",
+          "upperarm_roll_joint",
+          "elbow_flex_joint",
+          "forearm_roll_joint",
+          "wrist_flex_joint",
+          "wrist_roll_joint",
+          "head_pan_joint",
+          "head_tilt_joint",
+          "r_gripper_finger_joint",
+          "l_gripper_finger_joint"
+        ],
+        "positions": [0.08, 0.0, -0.4, 0.0, 1.4, 0.0, 0.2, 0.0, 0.0, 0.6, 0.0, 0.0]
+      },
+      "epsilon": 0.03,
+      "on_arrival": "to_home",
+      "transitions": [
+        {"name": "to_home", "next_state": "home"}
+      ]
+    }
+  ]
+}

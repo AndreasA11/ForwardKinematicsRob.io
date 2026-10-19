@@ -334,3 +334,44 @@ None. The complete system satisfies the grading specification, course protocol, 
 ## Checks performed
 
 `make clean && make build` succeeds offline. `make test` runs all 9 C++ unit and component integration tests. `make test-tcp` runs the full 12-item black-box TCP integration suite, passing all assertions cleanly.
+
+---
+
+# Task 13 implementation handoff
+
+## What changed
+
+- Implemented an external 3D robot viewer and communication bridge in `scripts/viewer.py` and `web/` (`web/index.html`, `web/viewer.js`, `web/viewer.css`).
+- Created a background Python bridge connecting over raw TCP (newline-delimited JSON) to `127.0.0.1:9095`, streaming `/xform_world`, `/tf`, `/joint_states`, and `/fsm/status` over standard HTTP Server-Sent Events (SSE `/stream`), and providing REST proxy endpoints for robot loading, FSM choreography management, and joint resetting without introducing WebSocket gateways to the C++ core.
+- Vendored Three.js and OrbitControls locally in `web/js/three.min.js` and `web/js/OrbitControls.js` to enable 100% offline rendering with zero external CDN dependencies.
+- Built a 3D WebGL frontend parsing URDF visual elements (`<box>`, `<cylinder>`, `<sphere>`, and stylized mesh proxies with `<material>` colors) and mapping incoming 16-element column-major transform matrices directly onto link object matrices (`link.matrix.fromArray(...)`) using robotics coordinate conventions (Z-up, X-forward, Y-left).
+- Handled robot reloads by disposing Three.js geometries/materials and pruning stale link objects completely.
+- Authored FSM choreographies in `fsm/fetch_dance.json` (5-state cyclical dance for the 26-link Fetch robot) and `fsm/arm_wave.json`, alongside a geometric primitive robot model in `urdf-files/primitive_bot.urdf`.
+- Delivered a portfolio web page in `portfolio/index.html` and `portfolio/style.css` with embedded `<video>` elements, choreography documentation, kinematics architecture breakdown, and the mandatory credit notice: `Fetch robot description © Fetch Robotics, Inc., CC BY-NC-SA 4.0`.
+- Generated choreography video deliverables in `portfolio/fetch_choreography.mp4`, `portfolio/fetch_choreography.webm`, and `portfolio/poster.png` using `scripts/generate_portfolio_video.py`.
+- Added end-to-end viewer verification in `tests/test_viewer_e2e.py` covering backend TCP communication, parameter loading, FSM choreography execution, SSE streaming, column-major matrix verification, model reload stale link purge, and joint resetting.
+- Added `.PHONY: viewer` and `viewer:` target in `Makefile` to launch `python3 scripts/viewer.py`.
+
+## Important implementation decisions
+
+- **No WebSocket Gateways:** In strict compliance with `spec/FK_API.md`, no WebSocket gateway was introduced. The viewer server connects to TCP port 9095 via plain TCP sockets and uses W3C standard HTTP Server-Sent Events (SSE `/stream`) to stream transforms to browsers over standard HTTP/1.1.
+- **Dedicated Socket Drain Thread:** `RosbridgeServer` configures `SO_SNDTIMEO` to 1 second. To prevent socket write timeouts and broken pipes when clients process or render frames, client scripts utilize a dedicated background reader thread continuously draining and queuing TCP messages.
+- **Column-Major Matrix Mapping:** Transform matrices serialized in `/xform_world` as `matrix[4*c + r] = M[r][c]` match Three.js `Matrix4.fromArray` directly. Setting `matrixAutoUpdate = false` ensures Three.js renders the exact forward kinematics computed by the runtime.
+- **URDF to Three.js Alignment:** URDF defines cylinders along the Z-axis, whereas Three.js `CylinderGeometry` defaults to the Y-axis. The frontend applies a local `+π/2` rotation around the X-axis to correctly align cylinders.
+- **Two-Step FSM Activation:** Calling `/fsm/load_from_file` reads the choreography file from `fsm/` into the client; activating it in the runtime requires passing the loaded document to `/fsm/update_logic` followed by `/fsm/set_running`.
+
+## Deviations from the plan
+
+None.
+
+## Known limitations or unresolved questions
+
+None. The external viewer functions completely decoupled from the graded C++ core runtime, preserving `make run` without UI dependencies while providing rich visualization for `make demo`.
+
+## Checks performed
+
+- `make test`: All 9 unit tests pass cleanly.
+- `make test-tcp`: All 12 black-box TCP integration categories pass cleanly.
+- `python3 tests/test_viewer_e2e.py`: All 8 stages pass (TCP connection, parameter loading, FSM loading/running, SSE stream delivery, column-major matrix checks, reload cleanup, joint reset).
+- Portfolio deliverables verified: `portfolio/fetch_choreography.mp4`, `portfolio/fetch_choreography.webm`, `portfolio/poster.png` verified on disk and playable in modern browsers.
+
