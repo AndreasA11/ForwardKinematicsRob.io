@@ -344,21 +344,25 @@ None. The complete system satisfies the grading specification, course protocol, 
 - Implemented an external 3D robot viewer and communication bridge in `scripts/viewer.py` and `web/` (`web/index.html`, `web/viewer.js`, `web/viewer.css`).
 - Created a background Python bridge connecting over raw TCP (newline-delimited JSON) to `127.0.0.1:9095`, streaming `/xform_world`, `/tf`, `/joint_states`, and `/fsm/status` over standard HTTP Server-Sent Events (SSE `/stream`), and providing REST proxy endpoints for robot loading, FSM choreography management, and joint resetting without introducing WebSocket gateways to the C++ core.
 - Vendored Three.js and OrbitControls locally in `web/js/three.min.js` and `web/js/OrbitControls.js` to enable 100% offline rendering with zero external CDN dependencies.
-- Built a 3D WebGL frontend parsing URDF visual elements (`<box>`, `<cylinder>`, `<sphere>`, and stylized mesh proxies with `<material>` colors) and mapping incoming 16-element column-major transform matrices directly onto link object matrices (`link.matrix.fromArray(...)`) using robotics coordinate conventions (Z-up, X-forward, Y-left).
+- Built a 3D WebGL frontend parsing URDF visual elements (`<box>`, `<cylinder>`, `<sphere>`, and stylized mesh proxies with local and top-level `<material>` colors) and mapping incoming 16-element column-major transform matrices directly onto link object matrices (`link.matrix.fromArray(...)`) using robotics coordinate conventions (Z-up, X-forward, Y-left).
 - Handled robot reloads by disposing Three.js geometries/materials and pruning stale link objects completely.
-- Authored FSM choreographies in `fsm/fetch_dance.json` (5-state cyclical dance for the 26-link Fetch robot) and `fsm/arm_wave.json`, alongside a geometric primitive robot model in `urdf-files/primitive_bot.urdf`.
-- Delivered a portfolio web page in `portfolio/index.html` and `portfolio/style.css` with embedded `<video>` elements, choreography documentation, kinematics architecture breakdown, and the mandatory credit notice: `Fetch robot description © Fetch Robotics, Inc., CC BY-NC-SA 4.0`.
-- Generated choreography video deliverables in `portfolio/fetch_choreography.mp4`, `portfolio/fetch_choreography.webm`, and `portfolio/poster.png` using `scripts/generate_portfolio_video.py`.
-- Added end-to-end viewer verification in `tests/test_viewer_e2e.py` covering backend TCP communication, parameter loading, FSM choreography execution, SSE streaming, column-major matrix verification, model reload stale link purge, and joint resetting.
-- Added `.PHONY: viewer` and `viewer:` target in `Makefile` to launch `python3 scripts/viewer.py`.
+- Designed and added a custom **7-DOF Chess Manipulator Arm Workstation** in `urdf-files/chess_arm.urdf`: 18 links and 17 joints, including a base table, 8x8 regulation checkered chess board, white and black chess pieces (`piece_pawn_e2`, `piece_pawn_d2`, `piece_pawn_e7`, `piece_king_white`, `piece_king_black`, `piece_knight_white`), 5-axis articulated arm (`arm_base_yaw`, `shoulder_pitch`, `elbow_pitch`, `wrist_pitch`, `wrist_roll`), and a dual-jaw parallel gripper (`gripper_left_joint`, `gripper_right_joint`) with precision rubber pads.
+- Authored a 9-phase cyclical FSM choreography in `fsm/chess_pick_and_place.json` executing the classic King's Pawn Opening (1. e4): neutral standby (`home`), pre-aligning above pawn (`hover_e2`), descending around piece (`descend_e2`), pinching piece (`grasp_pawn`), vertical lifting (`lift_pawn`), mid-air transport (`carry_to_e4`), lowering onto target square (`place_on_e4`), releasing piece (`release_pawn`), and vertical retraction (`retract_ascent`). Also maintained `fsm/fetch_dance.json` and `urdf-files/primitive_bot.urdf`.
+- Created an interactive launcher script `scripts/demo_portfolio.py` that starts the C++ demo runtime, launches the viewer bridge, loads `chess_arm.urdf`, activates `chess_pick_and_place`, and opens the portfolio showcase in the user's browser.
+- Added demo targets to `Makefile`: `make demo-portfolio` (or `make portfolio`), `make portfolio-video`, and updated `make demo` (supporting `PORTFOLIO=1` while preserving graded TCP unit test isolation).
+- Fixed the "Launch 3D Robot Viewer" button in `portfolio/index.html` by converting the link to relative path `../web/index.html` with intelligent client-side routing, resolving `ERR_FILE_NOT_FOUND` when dragging into Chrome (`file:///`) or serving via Live Server. Also added static route stripping in `scripts/viewer.py` for `/web/...` paths.
+- Delivered the portfolio web page in `portfolio/index.html` and `portfolio/style.css` with embedded video player, technical documentation for the chess robot arm, FSM state table, and verification that no external kinematics, transform, or URDF libraries are used.
+- Generated high-definition choreography demonstration videos and poster in `portfolio/chess_arm_choreography.mp4`, `portfolio/chess_arm_choreography.webm`, `portfolio/poster.png` (with backward-compatible `fetch_choreography.*` copies) using `scripts/generate_portfolio_video.py`.
+- Verified end-to-end integration via `tests/test_viewer_e2e.py` covering backend TCP communication, parameter loading, FSM choreography execution, SSE streaming, column-major matrix verification, model reload stale link purge, and joint resetting.
 
 ## Important implementation decisions
 
+- **Zero-Library Architecture Verified:** Confirmed that no external kinematics (no KDL, Pinocchio, MoveIt), transform (no tf/tf2, Eigen), or URDF-model libraries are used. Rotation math (vectors, unit quaternions, fixed-axis RPY, 4x4 column-major matrices) is custom-implemented in `math3d.cpp`; forward kinematics and tree traversal are custom-implemented in `forward_kinematics.cpp`; world-state tree traversal and matrix composition are custom-implemented in `robot_world_state_publisher.cpp`; URDF models are parsed and validated from raw XML via pugixml in `robot_model.cpp`.
 - **No WebSocket Gateways:** In strict compliance with `spec/FK_API.md`, no WebSocket gateway was introduced. The viewer server connects to TCP port 9095 via plain TCP sockets and uses W3C standard HTTP Server-Sent Events (SSE `/stream`) to stream transforms to browsers over standard HTTP/1.1.
 - **Dedicated Socket Drain Thread:** `RosbridgeServer` configures `SO_SNDTIMEO` to 1 second. To prevent socket write timeouts and broken pipes when clients process or render frames, client scripts utilize a dedicated background reader thread continuously draining and queuing TCP messages.
 - **Column-Major Matrix Mapping:** Transform matrices serialized in `/xform_world` as `matrix[4*c + r] = M[r][c]` match Three.js `Matrix4.fromArray` directly. Setting `matrixAutoUpdate = false` ensures Three.js renders the exact forward kinematics computed by the runtime.
 - **URDF to Three.js Alignment:** URDF defines cylinders along the Z-axis, whereas Three.js `CylinderGeometry` defaults to the Y-axis. The frontend applies a local `+π/2` rotation around the X-axis to correctly align cylinders.
-- **Two-Step FSM Activation:** Calling `/fsm/load_from_file` reads the choreography file from `fsm/` into the client; activating it in the runtime requires passing the loaded document to `/fsm/update_logic` followed by `/fsm/set_running`.
+- **Relative Viewer Linking:** Set the viewer button in `portfolio/index.html` to `../web/index.html` with smart client fallback, allowing direct opening from local `file:///` URLs, VS Code Live Server, and the Python HTTP bridge seamlessly.
 
 ## Deviations from the plan
 
@@ -366,12 +370,13 @@ None.
 
 ## Known limitations or unresolved questions
 
-None. The external viewer functions completely decoupled from the graded C++ core runtime, preserving `make run` without UI dependencies while providing rich visualization for `make demo`.
+None. The external viewer functions completely decoupled from the graded C++ core runtime, preserving `make run` without UI dependencies while providing rich visualization for `make demo` and `make demo-portfolio`.
 
 ## Checks performed
 
 - `make test`: All 9 unit tests pass cleanly.
 - `make test-tcp`: All 12 black-box TCP integration categories pass cleanly.
 - `python3 tests/test_viewer_e2e.py`: All 8 stages pass (TCP connection, parameter loading, FSM loading/running, SSE stream delivery, column-major matrix checks, reload cleanup, joint reset).
-- Portfolio deliverables verified: `portfolio/fetch_choreography.mp4`, `portfolio/fetch_choreography.webm`, `portfolio/poster.png` verified on disk and playable in modern browsers.
+- Portfolio deliverables verified: `portfolio/chess_arm_choreography.mp4`, `portfolio/chess_arm_choreography.webm`, `portfolio/poster.png` verified on disk and playable in modern browsers.
+
 

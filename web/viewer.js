@@ -21,6 +21,9 @@
   let activeFsmStatus = null;
   let sseSource = null;
   let selectedLinkName = null;
+  let animationSpeed = 1.0;
+  const _tmpMatrix = new THREE.Matrix4();
+  let lastFrameTime = performance.now();
 
   // MediaRecorder state
   let mediaRecorder = null;
@@ -50,6 +53,8 @@
   const selectedLinkNameEl = document.getElementById('selectedLinkName');
   const matrixGridEl = document.getElementById('matrixGrid');
   const posWorldEl = document.getElementById('posWorld');
+  const speedSlider = document.getElementById('speedSlider');
+  const speedValueLabel = document.getElementById('speedValueLabel');
 
   // --- Color Palette for Fallback ---
   const DEFAULT_COLORS = [
@@ -74,7 +79,7 @@
     // Coordinate convention: Z-up, X-forward, Y-left
     camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.05, 50);
     camera.up.set(0, 0, 1);
-    camera.position.set(2.4, -2.4, 1.8);
+    camera.position.set(0.85, -0.75, 0.65);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, preserveDrawingBuffer: true });
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -84,7 +89,7 @@
     container.appendChild(renderer.domElement);
 
     controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 0, 0.6);
+    controls.target.set(0.12, 0.0, 0.12);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't dip far below ground
@@ -136,6 +141,28 @@
 
   function animate() {
     requestAnimationFrame(animate);
+
+    const now = performance.now();
+    const dt = Math.min((now - lastFrameTime) / 1000.0, 0.1);
+    lastFrameTime = now;
+
+    // Smooth exponential interpolation toward target transforms at 60 fps
+    // Lerp rate scales with user's animationSpeed setting
+    const lerpRate = Math.min(1.0, dt * (5.0 + 8.0 * animationSpeed));
+    for (const linkObj of linkObjects.values()) {
+      if (linkObj.hasInitialPose && linkObj.targetPos) {
+        linkObj.currentPos.lerp(linkObj.targetPos, lerpRate);
+        linkObj.currentQuat.slerp(linkObj.targetQuat, lerpRate);
+        linkObj.currentScale.lerp(linkObj.targetScale, lerpRate);
+        linkObj.matrix.compose(linkObj.currentPos, linkObj.currentQuat, linkObj.currentScale);
+        linkObj.matrixWorldNeedsUpdate = true;
+
+        if (linkObj.name === selectedLinkName) {
+          displayMatrixDetails(selectedLinkName, linkObj.matrix.elements);
+        }
+      }
+    }
+
     if (controls) controls.update();
     if (renderer && scene && camera) {
       renderer.render(scene, camera);
@@ -157,6 +184,17 @@
     const doc = parser.parseFromString(urdfXml, "text/xml");
     const robotEl = doc.querySelector("robot");
     if (!robotEl) return new Map();
+
+    // Map top-level named materials
+    const topMaterials = new Map();
+    for (const matEl of robotEl.children) {
+      if (matEl.tagName.toLowerCase() !== "material") continue;
+      const matName = matEl.getAttribute("name");
+      const colorEl = matEl.querySelector("color");
+      if (matName && colorEl && colorEl.getAttribute("rgba")) {
+        topMaterials.set(matName, parseNumbers(colorEl.getAttribute("rgba"), 4));
+      }
+    }
 
     const linkDefs = new Map();
 
@@ -196,11 +234,16 @@
           }
         }
 
-        // Material color
+        // Material color (local or top-level reference)
         let colorRgba = null;
-        const colorEl = visEl.querySelector(":scope > material > color");
-        if (colorEl && colorEl.getAttribute("rgba")) {
-          colorRgba = parseNumbers(colorEl.getAttribute("rgba"), 4);
+        const matEl = visEl.querySelector(":scope > material");
+        if (matEl) {
+          const colorEl = matEl.querySelector("color");
+          if (colorEl && colorEl.getAttribute("rgba")) {
+            colorRgba = parseNumbers(colorEl.getAttribute("rgba"), 4);
+          } else if (matEl.getAttribute("name") && topMaterials.has(matEl.getAttribute("name"))) {
+            colorRgba = topMaterials.get(matEl.getAttribute("name"));
+          }
         }
 
         visualData = { xyz, rpy, geom: geomData, color: colorRgba };
@@ -255,6 +298,25 @@
       transparent: opacity < 1.0
     });
 
+    // 8x8 Checkered Chess Board Texture
+    if (linkName === 'board_surface') {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      const tileSize = 512 / 8;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          ctx.fillStyle = (r + c) % 2 === 0 ? '#edd6b0' : '#7b4c2b';
+          ctx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+        }
+      }
+      const boardTexture = new THREE.CanvasTexture(canvas);
+      material.map = boardTexture;
+      material.roughness = 0.45;
+      material.needsUpdate = true;
+    }
+
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -273,9 +335,50 @@
     const group = new THREE.Group();
     group.add(mesh);
 
-    // Add axis indicator to key links
-    const axes = new THREE.AxesHelper(0.06);
-    group.add(axes);
+    // Articulated Arm Spherical Ball Joints (balls at each joint pivot)
+    if (linkName === 'arm_base_link' || linkName.includes('shoulder') ||
+        linkName.includes('upper_arm') || linkName.includes('forearm') ||
+        linkName.includes('wrist')) {
+      const ballRadius = linkName === 'arm_base_link' ? 0.048 :
+                         linkName.includes('shoulder') ? 0.040 :
+                         linkName.includes('upper') ? 0.034 :
+                         linkName.includes('forearm') ? 0.028 : 0.022;
+      const ballGeom = new THREE.SphereGeometry(ballRadius, 24, 16);
+      const ballMat = new THREE.MeshStandardMaterial({
+        color: 0xd8dde8,
+        metalness: 0.85,
+        roughness: 0.2
+      });
+      const ballMesh = new THREE.Mesh(ballGeom, ballMat);
+      ballMesh.castShadow = true;
+      group.add(ballMesh);
+    }
+
+    // Spherical heads & collar on chess pieces
+    if (linkName.startsWith('piece_')) {
+      const headRadius = linkName.includes('king') ? 0.015 : 0.011;
+      const headGeom = new THREE.SphereGeometry(headRadius, 20, 16);
+      const headMesh = new THREE.Mesh(headGeom, material);
+      const cylLen = g.length || 0.036;
+      headMesh.position.set(ox, oy, oz + cylLen / 2 + headRadius * 0.7);
+      headMesh.castShadow = true;
+      group.add(headMesh);
+
+      if (linkName === 'piece_pawn_e2') {
+        const collarGeom = new THREE.TorusGeometry(0.011, 0.002, 12, 24);
+        collarGeom.rotateX(Math.PI / 2);
+        const collarMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 });
+        const collarMesh = new THREE.Mesh(collarGeom, collarMat);
+        collarMesh.position.set(ox, oy, oz + cylLen / 2);
+        group.add(collarMesh);
+      }
+    }
+
+    // Add axis indicator to key links only
+    if (linkName === 'arm_base_link' || linkName === 'table_base' || linkName === 'gripper_base') {
+      const axes = new THREE.AxesHelper(0.06);
+      group.add(axes);
+    }
 
     return group;
   }
@@ -363,13 +466,33 @@
         updateLinkCountBadge();
       }
 
-      // Three.js Matrix4.fromArray reads column-major arrays directly!
-      linkObj.matrix.fromArray(matrixArr);
-      linkObj.matrixWorldNeedsUpdate = true;
+      if (!linkObj.targetPos) {
+        linkObj.targetPos = new THREE.Vector3();
+        linkObj.targetQuat = new THREE.Quaternion();
+        linkObj.targetScale = new THREE.Vector3(1, 1, 1);
+        linkObj.currentPos = new THREE.Vector3();
+        linkObj.currentQuat = new THREE.Quaternion();
+        linkObj.currentScale = new THREE.Vector3(1, 1, 1);
+        linkObj.hasInitialPose = false;
+      }
+
+      // Decompose target matrix into position, quaternion, scale
+      _tmpMatrix.fromArray(matrixArr);
+      _tmpMatrix.decompose(linkObj.targetPos, linkObj.targetQuat, linkObj.targetScale);
+
+      // On first pose or instant reset, snap directly
+      if (!linkObj.hasInitialPose) {
+        linkObj.currentPos.copy(linkObj.targetPos);
+        linkObj.currentQuat.copy(linkObj.targetQuat);
+        linkObj.currentScale.copy(linkObj.targetScale);
+        linkObj.matrix.fromArray(matrixArr);
+        linkObj.matrixWorldNeedsUpdate = true;
+        linkObj.hasInitialPose = true;
+      }
 
       // Update Inspector if this link is selected
       if (linkName === selectedLinkName) {
-        displayMatrixDetails(linkName, matrixArr);
+        displayMatrixDetails(linkName, linkObj.matrix.elements);
       }
     }
 
@@ -517,11 +640,17 @@
       const robData = await robRes.json();
       if (robotSelect && robData.robots) {
         robotSelect.innerHTML = '';
-        for (const r of robData.robots) {
+        let defaultIdx = 0;
+        for (let i = 0; i < robData.robots.length; i++) {
+          const r = robData.robots[i];
           const opt = document.createElement('option');
           opt.value = r.path;
           opt.textContent = r.name;
+          if (r.path.includes('chess_arm')) defaultIdx = i;
           robotSelect.appendChild(opt);
+        }
+        if (robotSelect.options.length > defaultIdx) {
+          robotSelect.selectedIndex = defaultIdx;
         }
       }
 
@@ -530,11 +659,17 @@
       const fsmData = await fsmRes.json();
       if (fsmSelect && fsmData.fsm_files) {
         fsmSelect.innerHTML = '';
-        for (const f of fsmData.fsm_files) {
+        let defaultFsmIdx = 0;
+        for (let i = 0; i < fsmData.fsm_files.length; i++) {
+          const f = fsmData.fsm_files[i];
           const opt = document.createElement('option');
           opt.value = f.identifier;
           opt.textContent = f.identifier;
+          if (f.identifier.includes('chess')) defaultFsmIdx = i;
           fsmSelect.appendChild(opt);
+        }
+        if (fsmSelect.options.length > defaultFsmIdx) {
+          fsmSelect.selectedIndex = defaultFsmIdx;
         }
       }
 
@@ -704,6 +839,56 @@
     if (btnPauseFsm) btnPauseFsm.addEventListener('click', () => setFsmRunning(false));
     if (btnResetJoints) btnResetJoints.addEventListener('click', resetJoints);
     if (btnRecord) btnRecord.addEventListener('click', toggleRecording);
+
+    // Animation Speed Controls
+    function setAnimationSpeed(speed, updateBackend = true) {
+      animationSpeed = Math.max(0.1, Math.min(3.0, speed));
+      if (speedSlider) speedSlider.value = animationSpeed.toFixed(1);
+      if (speedValueLabel) {
+        let labelDesc = "Normal";
+        if (animationSpeed <= 0.35) labelDesc = "Very Slow";
+        else if (animationSpeed <= 0.75) labelDesc = "Slow & Smooth";
+        else if (animationSpeed >= 1.8) labelDesc = "Fast";
+        else if (animationSpeed >= 1.25) labelDesc = "Brisk";
+        speedValueLabel.textContent = `${animationSpeed.toFixed(1)}x (${labelDesc})`;
+      }
+
+      // Update active preset button highlight
+      document.querySelectorAll('.preset-btn').forEach((btn) => {
+        const btnSpeed = parseFloat(btn.dataset.speed);
+        if (Math.abs(btnSpeed - animationSpeed) < 0.08) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      if (updateBackend) {
+        fetch('/api/set_fsm_speed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ speed: animationSpeed })
+        }).catch((err) => console.log("[Viewer] set_fsm_speed notice:", err));
+      }
+    }
+
+    if (speedSlider) {
+      speedSlider.addEventListener('input', (e) => {
+        setAnimationSpeed(parseFloat(e.target.value), false);
+      });
+      speedSlider.addEventListener('change', (e) => {
+        setAnimationSpeed(parseFloat(e.target.value), true);
+      });
+    }
+
+    document.querySelectorAll('.preset-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sp = parseFloat(btn.dataset.speed);
+        if (!isNaN(sp)) {
+          setAnimationSpeed(sp, true);
+        }
+      });
+    });
 
     // Click on canvas to select links
     const raycaster = new THREE.Raycaster();

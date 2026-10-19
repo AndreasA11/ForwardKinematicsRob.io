@@ -30,6 +30,12 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        ex_type, _, _ = sys.exc_info()
+        if ex_type in (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            return
+        super().handle_error(request, client_address)
+
 
 class TcpRosbridgeClient:
     """Manages an external TCP connection to the Project 3 runtime on 127.0.0.1:9095."""
@@ -220,6 +226,12 @@ tcp_client = None
 
 
 class ViewerRequestHandler(BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError, ConnectionAbortedError):
+            pass
+
     def log_message(self, format, *args):
         # Mute routine SSE poll logs
         if "200" in format % args and "stream" in self.path:
@@ -292,23 +304,28 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/robot_description":
             desc = tcp_client.fetch_current_robot_description()
             if not desc:
-                # Fallback to fetch/fetch.urdf if not set
+                # Default to chess_arm.urdf if available, else fetch/fetch.urdf
+                chess_path = os.path.join(ROOT_DIR, "urdf-files", "chess_arm.urdf")
                 fetch_path = os.path.join(ROOT_DIR, "fetch", "fetch.urdf")
-                if os.path.exists(fetch_path):
-                    with open(fetch_path, "r", encoding="utf-8") as f:
+                candidate = chess_path if os.path.exists(chess_path) else fetch_path
+                if os.path.exists(candidate):
+                    with open(candidate, "r", encoding="utf-8") as f:
                         desc = f.read()
             self._send_json(200, {"description": desc})
             return
 
         if path == "/api/robot_list":
             robots = []
+            chess_path = os.path.join(ROOT_DIR, "urdf-files", "chess_arm.urdf")
+            if os.path.exists(chess_path):
+                robots.append({"id": "chess_arm", "name": "Chess Manipulator Arm (7-DOF)", "path": "urdf-files/chess_arm.urdf"})
             fetch_path = os.path.join(ROOT_DIR, "fetch", "fetch.urdf")
             if os.path.exists(fetch_path):
                 robots.append({"id": "fetch", "name": "Fetch Mobile Manipulator", "path": "fetch/fetch.urdf"})
             urdf_dir = os.path.join(ROOT_DIR, "urdf-files")
             if os.path.exists(urdf_dir):
                 for f in sorted(os.listdir(urdf_dir)):
-                    if f.endswith(".urdf") or f.endswith(".xml"):
+                    if (f.endswith(".urdf") or f.endswith(".xml")) and f != "chess_arm.urdf":
                         robots.append({"id": f, "name": f, "path": os.path.join("urdf-files", f)})
             self._send_json(200, {"robots": robots})
             return
@@ -317,32 +334,57 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             fsm_dir = os.path.join(ROOT_DIR, "fsm")
             fsm_files = []
             if os.path.exists(fsm_dir):
+                # Put chess_pick_and_place first if present
                 for f in sorted(os.listdir(fsm_dir)):
-                    if f.endswith(".json"):
-                        ident = f[:-5]
-                        fsm_files.append({"identifier": ident, "filename": f})
+                    if f == "chess_pick_and_place.json":
+                        fsm_files.insert(0, {"identifier": f[:-5], "filename": f})
+                    elif f.endswith(".json"):
+                        fsm_files.append({"identifier": f[:-5], "filename": f})
             self._send_json(200, {"fsm_files": fsm_files})
             return
 
         # 3. Static Files
-        if path == "/" or path == "":
-            path = "/index.html"
-
-        # Check in web/ first, then portfolio/
         web_dir = os.path.join(ROOT_DIR, "web")
         portfolio_dir = os.path.join(ROOT_DIR, "portfolio")
 
-        rel_path = path.lstrip("/")
-        full_path = os.path.normpath(os.path.join(web_dir, rel_path))
-        if not full_path.startswith(web_dir) or not os.path.exists(full_path):
-            # Check portfolio
-            p_path = os.path.normpath(os.path.join(portfolio_dir, rel_path))
-            if p_path.startswith(portfolio_dir) and os.path.exists(p_path) and not os.path.isdir(p_path):
-                full_path = p_path
+        clean_path = path.split("?")[0].lstrip("/")
+        full_path = None
+
+        if clean_path == "" or clean_path == "index.html":
+            full_path = os.path.join(web_dir, "index.html")
+        elif clean_path == "portfolio" or clean_path == "portfolio/":
+            full_path = os.path.join(portfolio_dir, "index.html")
+        elif clean_path.startswith("portfolio/"):
+            sub = clean_path[len("portfolio/"):]
+            if not sub or sub == "index.html":
+                full_path = os.path.join(portfolio_dir, "index.html")
             else:
-                if not os.path.exists(full_path) or os.path.isdir(full_path):
-                    self.send_error(404, f"File Not Found: {path}")
-                    return
+                cand_p = os.path.normpath(os.path.join(portfolio_dir, sub))
+                if cand_p.startswith(portfolio_dir) and os.path.exists(cand_p) and not os.path.isdir(cand_p):
+                    full_path = cand_p
+                else:
+                    # Fallback to web_dir if web assets were requested with /portfolio/ prefix
+                    cand_w = os.path.normpath(os.path.join(web_dir, sub))
+                    if cand_w.startswith(web_dir) and os.path.exists(cand_w) and not os.path.isdir(cand_w):
+                        full_path = cand_w
+        elif clean_path.startswith("web/"):
+            sub = clean_path[len("web/"):]
+            cand_w = os.path.normpath(os.path.join(web_dir, sub))
+            if cand_w.startswith(web_dir) and os.path.exists(cand_w) and not os.path.isdir(cand_w):
+                full_path = cand_w
+        else:
+            # Check web_dir first, then portfolio_dir
+            cand_w = os.path.normpath(os.path.join(web_dir, clean_path))
+            if cand_w.startswith(web_dir) and os.path.exists(cand_w) and not os.path.isdir(cand_w):
+                full_path = cand_w
+            else:
+                cand_p = os.path.normpath(os.path.join(portfolio_dir, clean_path))
+                if cand_p.startswith(portfolio_dir) and os.path.exists(cand_p) and not os.path.isdir(cand_p):
+                    full_path = cand_p
+
+        if not full_path or not os.path.exists(full_path) or os.path.isdir(full_path):
+            self.send_error(404, f"File Not Found: {path}")
+            return
 
         mime_types = {
             ".html": "text/html; charset=utf-8",
@@ -368,8 +410,13 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(content)
+        except (ConnectionResetError, BrokenPipeError):
+            pass
         except Exception as e:
-            self.send_error(500, f"Error reading file: {e}")
+            try:
+                self.send_error(500, f"Error reading file: {e}")
+            except Exception:
+                pass
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -435,6 +482,29 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             # Activate via /fsm/update_logic
             ok2, res2 = tcp_client.call_service("/fsm/update_logic", res)
             self._send_json(200, {"result": ok2, "values": res2})
+            return
+
+        if path == "/api/set_fsm_speed":
+            speed = float(payload.get("speed", 1.0))
+            if speed <= 0.05 or speed > 10.0:
+                self._send_json(400, {"result": False, "error": "Invalid speed value"})
+                return
+
+            ok, logic = tcp_client.call_service("/fsm/get_logic", {})
+            if not ok or not logic or not logic.get("states"):
+                self._send_json(400, {"result": False, "error": "No active logic loaded"})
+                return
+
+            # Keep base dwell times if not stored, then rescale
+            states = logic.get("states", [])
+            for st in states:
+                if "_base_dwell" not in st:
+                    st["_base_dwell"] = float(st.get("dwell_time", 1.2))
+                base = float(st.get("_base_dwell", 1.2))
+                st["dwell_time"] = round(base / speed, 3)
+
+            ok2, res2 = tcp_client.call_service("/fsm/update_logic", logic)
+            self._send_json(200, {"result": ok2, "speed": speed, "values": res2})
             return
 
         if path == "/api/set_fsm_running":

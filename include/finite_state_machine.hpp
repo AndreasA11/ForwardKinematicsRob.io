@@ -28,6 +28,7 @@ private:
         std::vector<std::string> joint_names;
         std::vector<double> positions;
         double epsilon{0};
+        double dwell_time{0.0};
         std::string on_arrival;
         std::unordered_map<std::string, std::string> transitions;
     };

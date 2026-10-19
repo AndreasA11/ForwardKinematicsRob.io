@@ -1,0 +1,374 @@
+<?xml version="1.0"?>
+<robot name="chess_manipulator_arm">
+
+  <!-- Materials -->
+  <material name="table_mat">
+    <color rgba="0.16 0.18 0.22 1.0"/>
+  </material>
+  <material name="board_border_mat">
+    <color rgba="0.30 0.18 0.10 1.0"/>
+  </material>
+  <material name="board_surface_mat">
+    <color rgba="0.75 0.68 0.55 1.0"/>
+  </material>
+  <material name="white_piece_mat">
+    <color rgba="0.94 0.92 0.84 1.0"/>
+  </material>
+  <material name="black_piece_mat">
+    <color rgba="0.14 0.14 0.16 1.0"/>
+  </material>
+  <material name="arm_base_mat">
+    <color rgba="0.22 0.24 0.28 1.0"/>
+  </material>
+  <material name="arm_primary_mat">
+    <color rgba="0.18 0.42 0.76 1.0"/>
+  </material>
+  <material name="arm_accent_mat">
+    <color rgba="0.28 0.30 0.34 1.0"/>
+  </material>
+  <material name="wrist_mat">
+    <color rgba="0.12 0.12 0.14 1.0"/>
+  </material>
+  <material name="finger_mat">
+    <color rgba="0.88 0.68 0.18 1.0"/>
+  </material>
+
+  <!-- ================= BASE TABLE & CHESS ENVIRONMENT ================= -->
+  <link name="table_base">
+    <visual>
+      <origin xyz="0.15 0.0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.85 0.85 0.04"/>
+      </geometry>
+      <material name="table_mat"/>
+    </visual>
+  </link>
+
+  <!-- Chess Board Frame -->
+  <link name="chess_board">
+    <visual>
+      <origin xyz="0 0 0.007" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.36 0.36 0.014"/>
+      </geometry>
+      <material name="board_border_mat"/>
+    </visual>
+  </link>
+
+  <joint name="table_to_board" type="fixed">
+    <parent link="table_base"/>
+    <child link="chess_board"/>
+    <origin xyz="0.26 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Chess Board Playfield Surface -->
+  <link name="board_surface">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.32 0.32 0.002"/>
+      </geometry>
+      <material name="board_surface_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_surface" type="fixed">
+    <parent link="chess_board"/>
+    <child link="board_surface"/>
+    <origin xyz="0 0 0.014" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Target White Pawn at e2 with dynamic pick-and-place degrees of freedom -->
+  <link name="pawn_e2_carrier">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.002 0.002"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <!-- Prismatic joint advancing pawn from e2 to e4 along X (0.00 to 0.08 m) -->
+  <joint name="pawn_advance_joint" type="prismatic">
+    <parent link="board_surface"/>
+    <child link="pawn_e2_carrier"/>
+    <origin xyz="-0.06 0.02 0.002" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.02" upper="0.12" effort="10.0" velocity="0.5"/>
+  </joint>
+
+  <!-- Target White Pawn piece -->
+  <link name="piece_pawn_e2">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <!-- Prismatic joint lifting pawn vertically along Z (0.00 to 0.10 m) -->
+  <joint name="pawn_lift_joint" type="prismatic">
+    <parent link="pawn_e2_carrier"/>
+    <child link="piece_pawn_e2"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.00" upper="0.15" effort="10.0" velocity="0.5"/>
+  </joint>
+
+  <!-- Target White Pawn at d2 (x = -0.06, y = -0.02 on board) -->
+  <link name="piece_pawn_d2">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_pawn_d2" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_pawn_d2"/>
+    <origin xyz="-0.06 -0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Opposing Black Pawn at e7 (x = 0.06, y = 0.02 on board) -->
+  <link name="piece_pawn_e7">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="black_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_pawn_e7" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_pawn_e7"/>
+    <origin xyz="0.06 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- White King at e1 (x = -0.10, y = 0.02 on board) -->
+  <link name="piece_king_white">
+    <visual>
+      <origin xyz="0 0 0.028" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.056"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_king_white" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_king_white"/>
+    <origin xyz="-0.10 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Black King at e8 (x = 0.10, y = 0.02 on board) -->
+  <link name="piece_king_black">
+    <visual>
+      <origin xyz="0 0 0.028" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.056"/>
+      </geometry>
+      <material name="black_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_king_black" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_king_black"/>
+    <origin xyz="0.10 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- White Knight at g1 (x = -0.10, y = 0.10 on board) -->
+  <link name="piece_knight_white">
+    <visual>
+      <origin xyz="0 0 0.024" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.014" length="0.048"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_knight_white" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_knight_white"/>
+    <origin xyz="-0.10 0.10 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================= ARTICULATED ROBOT ARM ================= -->
+  <!-- Arm Pedestal Base Mount -->
+  <link name="arm_base_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.065" length="0.04"/>
+      </geometry>
+      <material name="arm_base_mat"/>
+    </visual>
+  </link>
+
+  <joint name="table_to_arm_base" type="fixed">
+    <parent link="table_base"/>
+    <child link="arm_base_link"/>
+    <origin xyz="-0.02 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Joint 1: Base Turntable Yaw (Z-axis) -->
+  <link name="shoulder_link">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.048" length="0.06"/>
+      </geometry>
+      <material name="arm_primary_mat"/>
+    </visual>
+  </link>
+
+  <joint name="arm_base_yaw" type="revolute">
+    <parent link="arm_base_link"/>
+    <child link="shoulder_link"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="50.0" velocity="2.0"/>
+  </joint>
+
+  <!-- Joint 2: Shoulder Pitch (Y-axis) -->
+  <link name="upper_arm_link">
+    <visual>
+      <origin xyz="0 0 0.11" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.22"/>
+      </geometry>
+      <material name="arm_accent_mat"/>
+    </visual>
+  </link>
+
+  <joint name="shoulder_pitch" type="revolute">
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="40.0" velocity="2.0"/>
+  </joint>
+
+  <!-- Joint 3: Elbow Pitch (Y-axis) -->
+  <link name="forearm_link">
+    <visual>
+      <origin xyz="0 0 0.095" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.028" length="0.19"/>
+      </geometry>
+      <material name="arm_primary_mat"/>
+    </visual>
+  </link>
+
+  <joint name="elbow_pitch" type="revolute">
+    <parent link="upper_arm_link"/>
+    <child link="forearm_link"/>
+    <origin xyz="0 0 0.22" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.3562" upper="2.3562" effort="30.0" velocity="2.5"/>
+  </joint>
+
+  <!-- Joint 4: Wrist Pitch (Y-axis) -->
+  <link name="wrist_pitch_link">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.024" length="0.05"/>
+      </geometry>
+      <material name="arm_accent_mat"/>
+    </visual>
+  </link>
+
+  <joint name="wrist_pitch" type="revolute">
+    <parent link="forearm_link"/>
+    <child link="wrist_pitch_link"/>
+    <origin xyz="0 0 0.19" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.3562" upper="2.3562" effort="20.0" velocity="3.0"/>
+  </joint>
+
+  <!-- Joint 5: Wrist Roll (X-axis) -->
+  <link name="wrist_roll_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.020" length="0.04"/>
+      </geometry>
+      <material name="wrist_mat"/>
+    </visual>
+  </link>
+
+  <joint name="wrist_roll" type="revolute">
+    <parent link="wrist_pitch_link"/>
+    <child link="wrist_roll_link"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-3.14159" upper="3.14159" effort="15.0" velocity="3.5"/>
+  </joint>
+
+  <!-- Joint 6: Gripper Base Palm -->
+  <link name="gripper_base">
+    <visual>
+      <origin xyz="0 0 0.015" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.04 0.07 0.03"/>
+      </geometry>
+      <material name="wrist_mat"/>
+    </visual>
+  </link>
+
+  <joint name="wrist_to_gripper" type="fixed">
+    <parent link="wrist_roll_link"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Joint 7: Left Prismatic Gripper Jaw (moves along +Y) -->
+  <link name="gripper_left_finger">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.014 0.008 0.05"/>
+      </geometry>
+      <material name="finger_mat"/>
+    </visual>
+  </link>
+
+  <joint name="gripper_left_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="gripper_left_finger"/>
+    <origin xyz="0 0.015 0.03" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0.000" upper="0.025" effort="20.0" velocity="0.1"/>
+  </joint>
+
+  <!-- Joint 8: Right Prismatic Gripper Jaw (moves along -Y) -->
+  <link name="gripper_right_finger">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.014 0.008 0.05"/>
+      </geometry>
+      <material name="finger_mat"/>
+    </visual>
+  </link>
+
+  <joint name="gripper_right_joint" type="prismatic">
+    <parent link="gripper_base"/>
+    <child link="gripper_right_finger"/>
+    <origin xyz="0 -0.015 0.03" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.025" upper="0.000" effort="20.0" velocity="0.1"/>
+  </joint>
+
+</robot>

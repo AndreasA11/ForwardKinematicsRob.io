@@ -65,33 +65,38 @@ def test_viewer_integration():
         # Check robot & FSM lists
         print("2. Checking robot and FSM file discovery...")
         rob_list = make_request("/api/robot_list")
-        assert any(r["id"] == "fetch" for r in rob_list.get("robots", [])), "Fetch not found in robot list"
+        assert any(r["id"] == "chess_arm" for r in rob_list.get("robots", [])), "Chess arm not found in robot list"
         fsm_list = make_request("/api/fsm_list")
-        assert any(f["identifier"] == "fetch_dance" for f in fsm_list.get("fsm_files", [])), "fetch_dance not in FSM list"
+        assert any(f["identifier"] == "chess_pick_and_place" for f in fsm_list.get("fsm_files", [])), "chess_pick_and_place not in FSM list"
         print("  Robots and FSM definitions discovered correctly.")
 
-        # Load Fetch URDF via REST API
-        print("3. Loading Fetch URDF via viewer API...")
-        load_res = make_request("/api/load_robot", method="POST", payload={"path": "fetch/fetch.urdf"})
-        assert load_res.get("result"), f"Failed to load Fetch: {load_res}"
-        assert load_res.get("status", {}).get("root_link") == "base_link"
-        print("  Fetch URDF accepted and loaded as active robot.")
+        # Load Chess Arm URDF via REST API
+        print("3. Loading Chess Arm URDF via viewer API...")
+        load_res = make_request("/api/load_robot", method="POST", payload={"path": "urdf-files/chess_arm.urdf"})
+        assert load_res.get("result"), f"Failed to load Chess Arm: {load_res}"
+        assert load_res.get("status", {}).get("root_link") == "table_base"
+        print("  Chess Arm URDF accepted and loaded as active robot.")
 
         # Read description back
         desc_res = make_request("/api/robot_description")
-        assert "fetch" in desc_res.get("description", ""), "Description API did not return Fetch URDF"
+        assert "chess_manipulator_arm" in desc_res.get("description", ""), "Description API did not return Chess URDF"
 
         # Load FSM Choreography
-        print("4. Configuring FSM Choreography (fetch_dance)...")
-        fsm_res = make_request("/api/load_fsm", method="POST", payload={"identifier": "fetch_dance"})
+        print("4. Configuring FSM Choreography (chess_pick_and_place)...")
+        fsm_res = make_request("/api/load_fsm", method="POST", payload={"identifier": "chess_pick_and_place"})
         assert fsm_res.get("result"), f"Failed to load FSM: {fsm_res}"
-        print("  FSM choreography fetch_dance loaded.")
+        print("  FSM choreography chess_pick_and_place loaded.")
 
         # Start Choreography
         print("5. Starting FSM Choreography...")
         run_res = make_request("/api/set_fsm_running", method="POST", payload={"running": True})
         assert run_res.get("result"), "Failed to start FSM running"
         print("  FSM set_running=True successfully.")
+
+        # Test Animation Speed API
+        speed_res = make_request("/api/set_fsm_speed", method="POST", payload={"speed": 1.5})
+        assert speed_res.get("result"), f"Failed to set FSM speed: {speed_res}"
+        print("  FSM speed adjustment verified (/api/set_fsm_speed).")
 
         # Connect to SSE Stream and verify /xform_world and /fsm/status
         print("6. Subscribing to HTTP Server-Sent Events (/stream)...")
@@ -122,9 +127,9 @@ def test_viewer_integration():
                             seen_xform = True
                             transforms = msg["msg"]["transforms"]
                             child_frames = {t["child_frame_id"] for t in transforms}
-                            assert "base_link" in child_frames, "base_link missing from /xform_world"
-                            assert "torso_lift_link" in child_frames, "torso_lift_link missing"
-                            assert "wrist_roll_link" in child_frames, "wrist_roll_link missing"
+                            assert "table_base" in child_frames, "table_base missing from /xform_world"
+                            assert "arm_base_link" in child_frames, "arm_base_link missing"
+                            assert "gripper_left_finger" in child_frames, "gripper_left_finger missing"
 
                             # Verify 16-element column major matrix
                             for t in transforms:
@@ -166,10 +171,10 @@ def test_viewer_integration():
                         # Must contain primitive bot links
                         assert "turret_link" in frames
                         assert "ee_link" in frames
-                        # Must NOT contain Fetch links
-                        assert "torso_lift_link" not in frames
-                        assert "wrist_roll_link" not in frames
-                        print("  Stale Fetch link objects successfully purged on model replacement!")
+                        # Must NOT contain Chess Arm links
+                        assert "table_base" not in frames
+                        assert "gripper_left_finger" not in frames
+                        print("  Stale Chess Arm link objects successfully purged on model replacement!")
                         break
 
         # 8. Test Joint Reset

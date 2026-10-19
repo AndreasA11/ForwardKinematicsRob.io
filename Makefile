@@ -1,4 +1,4 @@
-.PHONY: build run demo clean test test-tcp viewer
+.PHONY: build run demo demo-portfolio portfolio portfolio-video viewer clean test test-tcp
 PUGIXML := third_party/pugixml
 build: main build/urdf_example
 
@@ -74,9 +74,20 @@ test-tcp: build
 	python3 tests/runtime_topic_tcp.py
 run: main
 	./main
-# *CHANGES*: Start Task 10's servo only for the portfolio demo.
+# *CHANGES*: Start Task 10's servo only for the portfolio demo, or launch the interactive portfolio demo if requested.
 demo: main
+ifdef PORTFOLIO
+	python3 scripts/demo_portfolio.py
+else
 	./main --demo
+endif
+# *CHANGES*: Launch the complete interactive Chess Arm portfolio demo with live runtime, viewer, and browser.
+demo-portfolio: build
+	python3 scripts/demo_portfolio.py
+portfolio: demo-portfolio
+# *CHANGES*: Render and compile the high-definition choreography demonstration video and poster.
+portfolio-video: build
+	python3 scripts/generate_portfolio_video.py
 # *CHANGES*: Launch Task 13 external 3D robot viewer and portfolio server.
 viewer:
 	python3 scripts/viewer.py

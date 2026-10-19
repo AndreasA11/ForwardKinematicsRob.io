@@ -98,6 +98,14 @@ Reply FiniteStateMachine::validate(const JsonValue& document,
                 return failure("on_arrival must name a transition");
             }
         }
+        if (item.contains("dwell_time")) {
+            if (item["dwell_time"].is_number() && std::isfinite(item["dwell_time"].as_number()) &&
+                item["dwell_time"].as_number() >= 0) {
+                state.dwell_time = item["dwell_time"].as_number();
+            } else if (!item["dwell_time"].is_null()) {
+                return failure("dwell_time must be a non-negative number");
+            }
+        }
         states.emplace(state.name, std::move(state));
     }
     if (!states.contains(document["initial_state"].as_string())) return failure("initial_state is unknown");
@@ -157,6 +165,10 @@ void FiniteStateMachine::observe(Shared& shared, middleware::Middleware& middlew
         for (std::size_t i = 0; i < state.joint_names.size(); ++i) {
             auto it = observed.find(state.joint_names[i]);
             if (it == observed.end() || std::abs(it->second - state.positions[i]) > state.epsilon) return;
+        }
+        if (state.dwell_time > 0.0) {
+            const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - shared.entered_at).count();
+            if (elapsed < state.dwell_time) return;
         }
         const std::string transition = state.on_arrival;
         trajectory = enter(shared, state.transitions.at(transition), JsonValue(transition));

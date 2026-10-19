@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Project 3 Portfolio // Forward Kinematics & FSM Choreography</title>
+  <title>Project 3 Portfolio // Chess Manipulator Arm & FSM Choreography</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,12 +11,12 @@
     <!-- Header -->
     <header class="portfolio-header">
       <span class="badge-tag">EECS 367: Introduction to Autonomous Robotics</span>
-      <h1 class="portfolio-title">Project 3: Forward Kinematics, World State & FSM Choreography</h1>
+      <h1 class="portfolio-title">Project 3: Autonomous Chess Manipulator Arm & Kinematics Runtime</h1>
       <p class="portfolio-subtitle">
-        A real-time robotics runtime featuring zero-configuration forward kinematics, dynamic line buffer transport, global world-state composition, closed-loop joint servoing, and finite-state-machine choreography.
+        A real-time robotics runtime featuring custom zero-library forward kinematics, dynamic line buffer transport, global world-state composition, closed-loop joint servoing, and autonomous chess pick-and-place choreography.
       </p>
       <div class="header-links">
-        <a href="/index.html" class="btn-link btn-primary-link">
+        <a href="../web/index.html" id="launchViewerBtn" class="btn-link btn-primary-link" onclick="handleLaunchViewer(event)">
           <span>🚀 Launch 3D Robot Viewer</span>
         </a>
         <a href="#video-demo" class="btn-link">
@@ -27,99 +27,141 @@
 
     <!-- Video Showcase Section -->
     <section id="video-demo" class="content-section">
-      <h2 class="section-heading">Choreography Demonstration Video</h2>
+      <h2 class="section-heading">Autonomous Chess Pick-and-Place Demonstration</h2>
       <div class="video-card">
         <div class="video-player-wrapper">
           <video controls autoplay loop muted playsinline poster="poster.png">
+            <source src="chess_arm_choreography.mp4" type="video/mp4">
             <source src="fetch_choreography.mp4" type="video/mp4">
+            <source src="chess_arm_choreography.webm" type="video/webm">
             <source src="fetch_choreography.webm" type="video/webm">
             Your browser does not support HTML5 video playback.
           </video>
         </div>
         <div class="video-caption">
-          <span><strong>Demonstration:</strong> Fetch Mobile Manipulator performing the 5-state cyclical choreography (<code>fetch_dance</code>) in the custom Three.js 3D viewer.</span>
-          <span>10 Hz World-State Composition (<code>/xform_world</code>)</span>
+          <span><strong>Demonstration:</strong> 7-DOF Articulated Manipulator Arm executing the 9-phase King's Pawn Opening (1. e4 pick-and-place) above a regulation checkered board.</span>
+          <div class="video-playback-controls">
+            <span class="vspeed-label">Playback:</span>
+            <button class="vspeed-btn" data-rate="0.5" onclick="setVideoPlaybackSpeed(0.5)">0.5x (Slow)</button>
+            <button class="vspeed-btn" data-rate="0.75" onclick="setVideoPlaybackSpeed(0.75)">0.75x</button>
+            <button class="vspeed-btn active" data-rate="1.0" onclick="setVideoPlaybackSpeed(1.0)">1.0x (Normal)</button>
+            <button class="vspeed-btn" data-rate="1.25" onclick="setVideoPlaybackSpeed(1.25)">1.25x</button>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- Section 1: The Robot Model -->
     <section class="content-section">
-      <h2 class="section-heading">1. Robot Model & Kinematic Architecture</h2>
+      <h2 class="section-heading">1. Robot Model & Workstation Architecture</h2>
       <p class="paragraph">
-        The demonstration features the <strong>Fetch Mobile Manipulator</strong> (defined in <code>fetch/fetch.urdf</code>), a mobile manipulation platform designed for unstructured human environments. The robot's kinematic model consists of <strong>26 links</strong> and <strong>25 joints</strong>:
+        The demonstration features a custom <strong>7-DOF Articulated Chess Manipulator Arm</strong> mounted alongside an 8x8 chess workstation (defined in <code>urdf-files/chess_arm.urdf</code>). The entire scene model consists of <strong>18 links</strong> and <strong>17 joints</strong>:
       </p>
       <div class="card-grid">
         <div class="info-card">
-          <div class="card-title">🦿 Mobile Base & Torso Lift</div>
+          <div class="card-title">♟️ Chess Environment & Pieces</div>
           <div class="card-text">
-            Differential drive wheels (<code>r_wheel_joint</code>, <code>l_wheel_joint</code>) provide planar mobility. The torso features a high-travel prismatic joint (<code>torso_lift_joint</code>, range 0.0 to 0.386 m) allowing vertical elevation of the entire upper body, head, and manipulator arm.
+            Features a sturdy base table (<code>table_base</code>), a mahogany-bordered chess board (<code>chess_board</code>), a regulation checkered playfield (<code>board_surface</code>), and chess pieces including the target white pawn at e2 (<code>piece_pawn_e2</code>), opposing black pawn at e7, white pawn at d2, white king at e1, black king at e8, and knight at g1.
           </div>
         </div>
         <div class="info-card">
-          <div class="card-title">🦾 7-DOF Manipulator Arm</div>
+          <div class="card-title">🦾 5-Axis Articulated Arm</div>
           <div class="card-text">
-            An articulated 7-axis kinematic arm featuring <code>shoulder_pan_joint</code>, <code>shoulder_lift_joint</code>, <code>upperarm_roll_joint</code>, <code>elbow_flex_joint</code>, <code>forearm_roll_joint</code>, <code>wrist_flex_joint</code>, and <code>wrist_roll_joint</code>, terminating in a parallel-finger gripper.
+            Kinematic chain featuring a base turntable yaw joint (<code>arm_base_yaw</code>, Z-axis), shoulder pitch joint (<code>shoulder_pitch</code>, Y-axis), elbow pitch joint (<code>elbow_pitch</code>, Y-axis), wrist pitch joint (<code>wrist_pitch</code>, Y-axis), and wrist roll joint (<code>wrist_roll</code>, X-axis) providing full 5-DOF spatial positioning and orientation across all 64 squares.
           </div>
         </div>
         <div class="info-card">
-          <div class="card-title">👀 Pan-Tilt Head Assembly</div>
+          <div class="card-title">🤏 Parallel Jaw Gripper</div>
           <div class="card-text">
-            A 2-axis active sensor head (<code>head_pan_joint</code>, <code>head_tilt_joint</code>) housing RGB-D perception sensors that pan and tilt dynamically to orient the robot's gaze toward active manipulation targets.
+            A dual-jaw prismatic gripper (<code>gripper_left_joint</code>, <code>gripper_right_joint</code>) equipped with high-friction gold rubber finger pads calibrated to straddle and securely clamp a 24 mm diameter chess piece without collision.
           </div>
         </div>
       </div>
       <p class="paragraph">
-        Our URDF parser recursively validates every link, joint origin <code>T_origin = Trans(xyz) · Rot(rpy)</code>, rotation axis, and joint limit bounds. Visual elements support <code>&lt;box&gt;</code>, <code>&lt;cylinder&gt;</code>, <code>&lt;sphere&gt;</code>, and styled mesh proxies colored by each link's <code>&lt;material&gt;</code> RGBA specification.
+        Our custom URDF parser reads and validates every link origin, rotational axis, and joint limits. Visual elements support <code>&lt;box&gt;</code>, <code>&lt;cylinder&gt;</code>, <code>&lt;sphere&gt;</code>, and <code>&lt;material&gt;</code> color specifications parsed directly without external URDF packages.
       </p>
     </section>
 
     <!-- Section 2: FSM Choreography -->
     <section class="content-section">
-      <h2 class="section-heading">2. Finite-State-Machine Choreography</h2>
+      <h2 class="section-heading">2. Finite-State-Machine Choreography: 1. e4 Move</h2>
       <p class="paragraph">
-        Autonomous motion is orchestrated by the <code>FiniteStateMachine</code> (FSM) component running under <code>make demo</code>. The choreography is defined as a formal state machine in <code>fsm/fetch_dance.json</code>. Each state commands simultaneous multi-joint targets to the <code>/joint_trajectory</code> topic, which are smoothly servoed by <code>JointStatePublisher</code> at 10 Hz. The FSM observes <code>/joint_states</code> and triggers automated <code>on_arrival</code> transitions once all named joints reach their target within tolerance (<code>ε = 0.03</code>).
+        Autonomous piece manipulation is governed by the <code>FiniteStateMachine</code> runtime node running under <code>make demo</code>. The choreography is defined in <code>fsm/chess_pick_and_place.json</code>, decomposing the chess move into 9 sequential phases. Each state dispatches synchronized multi-joint setpoints to <code>/joint_trajectory</code>, servoed at 10 Hz by <code>JointStatePublisher</code>. Automatic transitions trigger upon reaching the target tolerance (<code>ε = 0.03</code>).
       </p>
 
       <div class="table-wrapper">
         <table>
           <thead>
             <tr>
+              <th>Phase</th>
               <th>State</th>
-              <th>Key Joint Targets</th>
-              <th>Description</th>
+              <th>Target Configuration</th>
+              <th>Physical Action Description</th>
               <th>Next State</th>
             </tr>
           </thead>
           <tbody>
             <tr>
+              <td>1</td>
               <td><code>home</code></td>
-              <td><code>torso: 0.05m</code>, <code>elbow: 1.2 rad</code>, <code>shoulder: 0.0 rad</code></td>
-              <td>Neutral tucked stance with arm folded and head centered.</td>
-              <td><code>rise_and_reach</code></td>
+              <td><code>yaw: 0.0</code>, <code>sh: -0.50</code>, <code>el: 1.10</code>, <code>grip: 0.022m</code></td>
+              <td>Neutral standby stance above the board with jaws open wide.</td>
+              <td><code>hover_e2</code></td>
             </tr>
             <tr>
-              <td><code>rise_and_reach</code></td>
-              <td><code>torso: 0.35m</code>, <code>shoulder_lift: 0.5 rad</code>, <code>head_tilt: 0.4 rad</code></td>
-              <td>Torso extends to maximum elevation, arm reaches forward, and head nods to track gripper.</td>
-              <td><code>wave_right</code></td>
+              <td>2</td>
+              <td><code>hover_e2</code></td>
+              <td><code>yaw: 0.07</code>, <code>sh: 0.20</code>, <code>el: 0.85</code>, <code>wr: 0.52</code></td>
+              <td>Arm reaches out and pre-aligns directly above the e2 pawn.</td>
+              <td><code>descend_e2</code></td>
             </tr>
             <tr>
-              <td><code>wave_right</code></td>
-              <td><code>shoulder_pan: -0.8 rad</code>, <code>shoulder_lift: 1.0 rad</code>, <code>wrist_roll: 0.8 rad</code></td>
-              <td>Arm sweeps upward and rightward into an expressive wave; head turns right.</td>
-              <td><code>wave_left</code></td>
+              <td>3</td>
+              <td><code>descend_e2</code></td>
+              <td><code>yaw: 0.07</code>, <code>sh: 0.35</code>, <code>el: 1.02</code>, <code>wr: 0.20</code></td>
+              <td>End effector descends vertically; jaws straddle the e2 pawn.</td>
+              <td><code>grasp_pawn</code></td>
             </tr>
             <tr>
-              <td><code>wave_left</code></td>
-              <td><code>shoulder_pan: 0.4 rad</code>, <code>wrist_flex: -0.6 rad</code>, <code>head_pan: 0.4 rad</code></td>
-              <td>Arm reverses direction and sweeps left across the workspace in continuous gesture.</td>
-              <td><code>bow</code></td>
+              <td>4</td>
+              <td><code>grasp_pawn</code></td>
+              <td><code>grip_left: 0.006m</code>, <code>grip_right: -0.006m</code></td>
+              <td>Prismatic jaws clamp inward, securing the pawn firmly between rubber pads.</td>
+              <td><code>lift_pawn</code></td>
             </tr>
             <tr>
-              <td><code>bow</code></td>
-              <td><code>torso: 0.08m</code>, <code>shoulder_lift: -0.4 rad</code>, <code>head_tilt: 0.6 rad</code></td>
-              <td>Torso lowers down, arm folds smoothly inward, and head bows down respectfully before cycling to home.</td>
+              <td>5</td>
+              <td><code>lift_pawn</code></td>
+              <td><code>sh: 0.12</code>, <code>el: 0.78</code>, <code>wr: 0.67</code></td>
+              <td>Vertical ascent lifts the pawn 10 cm off the board surface.</td>
+              <td><code>carry_to_e4</code></td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td><code>carry_to_e4</code></td>
+              <td><code>yaw: 0.04</code>, <code>sh: 0.20</code>, <code>el: 0.70</code>, <code>wr: 0.67</code></td>
+              <td>Translates pawn through mid-air across the board to square e4 (1. e4 opening).</td>
+              <td><code>place_on_e4</code></td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td><code>place_on_e4</code></td>
+              <td><code>yaw: 0.04</code>, <code>sh: 0.38</code>, <code>el: 0.88</code>, <code>wr: 0.31</code></td>
+              <td>Lowers pawn smoothly and precisely onto destination square e4.</td>
+              <td><code>release_pawn</code></td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td><code>release_pawn</code></td>
+              <td><code>grip_left: 0.022m</code>, <code>grip_right: -0.022m</code></td>
+              <td>Jaws open wide, cleanly releasing the pawn on square e4.</td>
+              <td><code>retract_ascent</code></td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td><code>retract_ascent</code></td>
+              <td><code>yaw: 0.04</code>, <code>sh: 0.08</code>, <code>el: 0.72</code>, <code>wr: 0.77</code></td>
+              <td>Vertical ascent clears board obstacles before returning to home.</td>
               <td><code>home</code> (loop)</td>
             </tr>
           </tbody>
@@ -127,34 +169,34 @@
       </div>
     </section>
 
-    <!-- Section 3: Viewer Architecture -->
+    <!-- Section 3: Custom Math & Kinematics Implementation -->
     <section class="content-section">
-      <h2 class="section-heading">3. Viewer Architecture & Transform Rendering</h2>
+      <h2 class="section-heading">3. Custom Math, Kinematics & Viewer Architecture</h2>
       <p class="paragraph">
-        The viewer operates as a completely <strong>external client</strong> decoupled from the graded C++ core runtime, adhering strictly to course protocols:
+        In strict adherence to course specifications, <strong>no external kinematics, transform, or URDF-model libraries are used anywhere in the implementation</strong> (no KDL, Pinocchio, MoveIt, tf/tf2, or Eigen):
       </p>
       <div class="card-grid">
         <div class="info-card">
-          <div class="card-title">🔌 Protocol Conformance</div>
+          <div class="card-title">🧮 Custom 3D Rotation Math</div>
           <div class="card-text">
-            The viewer connects to the runtime via the existing raw TCP/JSON gateway (<code>127.0.0.1:9095</code>) using standard newline-delimited JSON. No WebSocket gateways or UI dependencies are introduced into the runtime.
+            Implemented entirely from first principles in <code>include/math3d.hpp</code> and <code>src/math3d.cpp</code>: 3D vector arithmetic, unit quaternions (axis-angle, fixed-axis roll-pitch-yaw, normalization, conjugation, Hamilton product), and 4x4 column-major transformation matrices (<code>Matrix4::data[4*c + r]</code>).
           </div>
         </div>
         <div class="info-card">
-          <div class="card-title">📐 Column-Major Matrix Unpacking</div>
+          <div class="card-title">🌳 Recursive Tree Traversal</div>
           <div class="card-text">
-            Transforms arrive on <code>/xform_world</code> as 16-element column-major arrays (<code>matrix[4*c + r] = M[r][c]</code>). In Three.js, each link's <code>matrixAutoUpdate = false</code>, and <code>link.matrix.fromArray(matrix)</code> unpacks the exact homogeneous transformation matrix with zero computation overhead.
+            Implemented from scratch in <code>src/forward_kinematics.cpp</code>: traverses the validated robot tree from its discovered root link, composing local joint transformations <code>T_origin · T_motion(q)</code> across revolute, continuous, and prismatic joints to compute one root-relative pose per link.
           </div>
         </div>
         <div class="info-card">
-          <div class="card-title">🔄 Stale Link Object Purge</div>
+          <div class="card-title">🌐 World-State Composition</div>
           <div class="card-text">
-            Whenever a new robot model is loaded through <code>/param_server/set_param</code>, the viewer compares active links against incoming frames, immediately detaching and disposing of old geometry without retaining stale links.
+            In <code>src/robot_world_state_publisher.cpp</code>, the runtime traverses the active TF tree and multiplies by the global root pose (<code>T_global · T_parent · T_child</code>), publishing complete 16-element column-major matrices on <code>/xform_world</code> at 10 Hz.
           </div>
         </div>
       </div>
       <p class="paragraph">
-        Coordinate conventions are preserved accurately: the viewer configures <code>camera.up.set(0, 0, 1)</code> to natively honor the robotics standard (Z-up, X-forward, Y-left) with a ground grid on the XY plane and an RGB world axis triad.
+        The external 3D viewer (<code>scripts/viewer.py</code>, <code>web/</code>) consumes <code>/xform_world</code> over raw TCP (no WebSocket gateways), mapping incoming column-major matrices to Three.js link objects with smooth 60 fps spherical linear quaternion interpolation (<code>slerp</code>), an interactive Animation Speed controller (0.2x–2.5x), and automated state dwell timing. Stale link objects are automatically purged whenever a model is reloaded.
       </p>
     </section>
 
@@ -166,11 +208,41 @@
           Fetch robot description © Fetch Robotics, Inc., CC BY-NC-SA 4.0
         </div>
         <p style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
-          Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
-          Full license terms are preserved in <code>fetch/LICENSE.md</code>.
+          Licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (CC BY-NC-SA 4.0).
+          Both Fetch manipulator and custom Chess Manipulator Arm descriptions are supported interchangeably by the Project 3 runtime.
         </p>
       </div>
     </section>
   </div>
+
+  <script>
+    function handleLaunchViewer(e) {
+      if (window.location.port === '8092') {
+        window.location.href = '/index.html';
+        e.preventDefault();
+        return;
+      }
+      if (window.location.protocol === 'file:') {
+        // Native relative navigation to ../web/index.html works cleanly in Chrome
+        return;
+      }
+      e.preventDefault();
+      fetch('http://127.0.0.1:8092/api/status', { mode: 'no-cors' })
+        .then(() => {
+          window.location.href = 'http://127.0.0.1:8092/index.html';
+        })
+        .catch(() => {
+          window.location.href = '../web/index.html';
+        });
+    }
+
+    function setVideoPlaybackSpeed(rate) {
+      const vid = document.querySelector('video');
+      if (vid) vid.playbackRate = rate;
+      document.querySelectorAll('.vspeed-btn').forEach(b => {
+        b.classList.toggle('active', parseFloat(b.dataset.rate) === rate);
+      });
+    }
+  </script>
 </body>
 </html>
