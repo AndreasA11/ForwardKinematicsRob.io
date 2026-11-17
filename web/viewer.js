@@ -359,51 +359,84 @@
     } else if (g.type === "mesh") {
       const fn = (g.filename || "").toLowerCase();
 
-      // Sleek, proportional box sizes tailored to each robot arm segment
-      // Avoids oversized 12cm overlapping cubes so each link is clearly distinguishable
-      let boxSize = [0.04, 0.04, 0.04];
-      let boxOffset = [0, 0, 0];
+      // Sleek cylindrical link bodies for robot arm segments
+      let geomType = "cylinder";
+      let cylRadius = 0.018;
+      let cylLength = 0.05;
+      let boxSize = null;
+      let offset = [0, 0, 0];
+      let axis = "z"; // default cylinder axis along Z in robot coordinates
 
       if (n.includes('base_link') || fn.includes('base')) {
-        boxSize = [0.09, 0.09, 0.035];
-        boxOffset = [0, 0, 0.015];
+        cylRadius = 0.065;
+        cylLength = 0.035;
+        axis = "z";
+        offset = [0, 0, 0.0175];
       } else if (n.includes('shoulder') || fn.includes('shoulder')) {
-        boxSize = [0.05, 0.05, 0.045];
-        boxOffset = [0, 0, 0.02];
+        cylRadius = 0.038;
+        cylLength = 0.045;
+        axis = "z";
+        offset = [0, 0, 0.0225];
       } else if (n.includes('upper_arm') || fn.includes('upper')) {
-        // Upper arm boom spans from shoulder toward elbow (length ~0.20m)
-        boxSize = [0.032, 0.032, 0.18];
-        boxOffset = [0.025, 0, 0.09];
+        // Upper arm boom cylinder connecting shoulder to elbow
+        cylRadius = 0.022;
+        cylLength = 0.19;
+        axis = "upper"; // tilted slightly toward elbow
+        offset = [0.025, 0, 0.095];
       } else if (n.includes('forearm') || fn.includes('forearm')) {
-        // Forearm boom spans forward along +X toward wrist (length ~0.19m)
-        boxSize = [0.18, 0.028, 0.028];
-        boxOffset = [0.09, 0, 0];
+        // Forearm boom cylinder connecting elbow to wrist along +X
+        cylRadius = 0.018;
+        cylLength = 0.18;
+        axis = "x";
+        offset = [0.09, 0, 0];
       } else if (n.includes('wrist') || fn.includes('wrist')) {
-        // Wrist segment along +X (length ~0.055m)
-        boxSize = [0.05, 0.024, 0.024];
-        boxOffset = [0.025, 0, 0];
+        // Wrist cylinder along +X
+        cylRadius = 0.015;
+        cylLength = 0.05;
+        axis = "x";
+        offset = [0.025, 0, 0];
       } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop')) {
-        // Gripper palm housing
-        boxSize = [0.035, 0.048, 0.024];
-        boxOffset = [0.015, 0, 0];
+        // Gripper palm cylinder
+        cylRadius = 0.020;
+        cylLength = 0.035;
+        axis = "x";
+        offset = [0.016, 0, 0];
       } else if (n.includes('finger') || fn.includes('finger')) {
         // Gripper finger jaws
+        geomType = "box";
         boxSize = [0.028, 0.007, 0.014];
         const yOff = n.includes('left') ? 0.004 : (n.includes('right') ? -0.004 : 0);
-        boxOffset = [0.014, yOff, 0];
+        offset = [0.014, yOff, 0];
       } else if (n.includes('bar') || n.includes('prop') || n.includes('ee_')) {
-        boxSize = [0.012, 0.018, 0.012];
+        cylRadius = 0.008;
+        cylLength = 0.016;
+        axis = "z";
       } else {
-        boxSize = [0.04, 0.04, 0.04];
+        cylRadius = 0.018;
+        cylLength = 0.05;
+        axis = "z";
       }
 
-      geometry = new THREE.BoxGeometry(boxSize[0], boxSize[1], boxSize[2]);
+      if (geomType === "box" && boxSize) {
+        geometry = new THREE.BoxGeometry(boxSize[0], boxSize[1], boxSize[2]);
+      } else {
+        geometry = new THREE.CylinderGeometry(cylRadius, cylRadius, cylLength, 24);
+        if (axis === "z") {
+          geometry.rotateX(Math.PI / 2);
+        } else if (axis === "x") {
+          geometry.rotateZ(Math.PI / 2);
+        } else if (axis === "upper") {
+          geometry.rotateX(Math.PI / 2);
+          geometry.rotateY(0.245);
+        }
+      }
+
       const ox0 = visualData.xyz[0];
       const oy0 = visualData.xyz[1];
       const oz0 = visualData.xyz[2];
       if (ox0 === 0 && oy0 === 0 && oz0 === 0) {
-        if (boxOffset[0] !== 0 || boxOffset[1] !== 0 || boxOffset[2] !== 0) {
-          geometry.translate(boxOffset[0], boxOffset[1], boxOffset[2]);
+        if (offset[0] !== 0 || offset[1] !== 0 || offset[2] !== 0) {
+          geometry.translate(offset[0], offset[1], offset[2]);
         }
       }
     }
@@ -463,11 +496,13 @@
 
     // Spherical ball joints at joint pivots
     if (linkName === 'arm_base_link' || n.includes('base_link') || n.includes('shoulder') ||
-        n.includes('upper_arm') || n.includes('forearm') || n.includes('wrist')) {
+        n.includes('upper_arm') || n.includes('forearm') || n.includes('wrist') ||
+        (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop'))) {
       const ballRadius = (linkName === 'arm_base_link' || n.includes('base_link')) ? 0.045 :
                          n.includes('shoulder') ? 0.036 :
                          n.includes('upper') ? 0.028 :
-                         n.includes('forearm') ? 0.024 : 0.018;
+                         n.includes('forearm') ? 0.024 :
+                         n.includes('wrist') ? 0.018 : 0.015;
       const ballGeom = new THREE.SphereGeometry(ballRadius, 24, 16);
       const ballMat = new THREE.MeshStandardMaterial({
         color: 0xd8dde8,
