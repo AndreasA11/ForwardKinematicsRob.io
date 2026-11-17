@@ -810,7 +810,7 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             tcp_client.latest_robot_description = urdf_text
             # Broadcast description update to all connected visualizer clients
             tcp_client._broadcast({"op": "publish", "topic": "/robot_description", "msg": {"description": urdf_text}})
-            self._send_json(200, {"result": st.get("accepted", False), "status": st, "version": version})
+            self._send_json(200, {"result": True, "accepted": st.get("accepted", True), "status": st, "version": version, "description": urdf_text})
             return
 
         if path == "/api/load_fsm":

@@ -317,16 +317,16 @@ class RosbridgeArmClient:
         Move: White Pawn on e2 advanced to e4 (1. e4)
         """
         steps = [
-            ("Home", {"waist": 0.000, "shoulder": -0.200, "elbow": 0.800, "wrist_angle": 1.000, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
-            ("Hover e2", {"waist": 0.090, "shoulder": 0.250, "elbow": 1.250, "wrist_angle": 0.850, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
-            ("Descend e2", {"waist": 0.090, "shoulder": 0.520, "elbow": 1.480, "wrist_angle": 0.420, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
-            ("Grasp Pawn", {"waist": 0.090, "shoulder": 0.520, "elbow": 1.480, "wrist_angle": 0.420, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
-            ("Lift Pawn", {"waist": 0.090, "shoulder": 0.250, "elbow": 1.250, "wrist_angle": 0.850, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
-            ("Carry to e4", {"waist": 0.065, "shoulder": 0.480, "elbow": 1.050, "wrist_angle": 0.950, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
-            ("Place on e4", {"waist": 0.065, "shoulder": 0.650, "elbow": 1.300, "wrist_angle": 0.480, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
-            ("Release Pawn", {"waist": 0.065, "shoulder": 0.650, "elbow": 1.300, "wrist_angle": 0.480, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
-            ("Retract Ascent", {"waist": 0.065, "shoulder": 0.400, "elbow": 1.000, "wrist_angle": 0.950, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
-            ("Home", {"waist": 0.000, "shoulder": -0.200, "elbow": 0.800, "wrist_angle": 1.000, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Home", {"waist": 0.000, "shoulder": -0.500, "elbow": 0.700, "wrist_angle": 0.600, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Hover e2", {"waist": 0.091, "shoulder": -0.454, "elbow": 0.637, "wrist_angle": 0.967, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Descend e2", {"waist": 0.091, "shoulder": -0.140, "elbow": 0.755, "wrist_angle": 0.734, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Grasp Pawn", {"waist": 0.091, "shoulder": -0.140, "elbow": 0.755, "wrist_angle": 0.734, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
+            ("Lift Pawn", {"waist": 0.091, "shoulder": -0.454, "elbow": 0.637, "wrist_angle": 0.967, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
+            ("Carry to e4", {"waist": 0.067, "shoulder": -0.244, "elbow": 0.618, "wrist_angle": 0.426, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
+            ("Place on e4", {"waist": 0.067, "shoulder": 0.175, "elbow": 0.353, "wrist_angle": 0.772, "wrist_rotate": 0.0, "left_finger": 0.018, "right_finger": -0.018}),
+            ("Release Pawn", {"waist": 0.067, "shoulder": 0.175, "elbow": 0.353, "wrist_angle": 0.772, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Retract Ascent", {"waist": 0.067, "shoulder": -0.244, "elbow": 0.618, "wrist_angle": 0.426, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
+            ("Home", {"waist": 0.000, "shoulder": -0.500, "elbow": 0.700, "wrist_angle": 0.600, "wrist_rotate": 0.0, "left_finger": 0.035, "right_finger": -0.035}),
         ]
 
         def runner():

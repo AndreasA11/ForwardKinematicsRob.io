@@ -238,90 +238,76 @@
     return nums.slice(0, count);
   }
 
-  function getChildTag(el, tag) {
-    if (!el || !el.children) return null;
-    const t = tag.toLowerCase();
-    for (let i = 0; i < el.children.length; i++) {
-      if (el.children[i].tagName && el.children[i].tagName.toLowerCase() === t) return el.children[i];
-    }
-    return null;
-  }
-
   function parseUrdf(urdfXml) {
+    if (!urdfXml) return new Map();
     const parser = new DOMParser();
     const doc = parser.parseFromString(urdfXml, "text/xml");
-    const robotEl = getChildTag(doc, "robot") || doc.querySelector("robot");
+    const robotEl = doc.getElementsByTagName("robot")[0] || doc.documentElement;
     if (!robotEl) return new Map();
 
     // Map top-level named materials
     const topMaterials = new Map();
-    for (let i = 0; i < robotEl.children.length; i++) {
-      const matEl = robotEl.children[i];
-      if (matEl.tagName.toLowerCase() !== "material") continue;
+    const allMaterials = robotEl.getElementsByTagName("material");
+    for (let i = 0; i < allMaterials.length; i++) {
+      const matEl = allMaterials[i];
+      if (matEl.parentNode !== robotEl) continue;
       const matName = matEl.getAttribute("name");
-      const colorEl = getChildTag(matEl, "color") || matEl.querySelector("color");
+      const colorEl = matEl.getElementsByTagName("color")[0];
       if (matName && colorEl && colorEl.getAttribute("rgba")) {
         topMaterials.set(matName, parseNumbers(colorEl.getAttribute("rgba"), 4));
       }
     }
 
     const linkDefs = new Map();
+    const allLinks = robotEl.getElementsByTagName("link");
 
-    for (let i = 0; i < robotEl.children.length; i++) {
-      const linkEl = robotEl.children[i];
-      if (linkEl.tagName.toLowerCase() !== "link") continue;
+    for (let i = 0; i < allLinks.length; i++) {
+      const linkEl = allLinks[i];
+      if (linkEl.parentNode !== robotEl) continue;
       const linkName = linkEl.getAttribute("name");
       if (!linkName) continue;
 
       let visualData = null;
-      let visEl = getChildTag(linkEl, "visual");
-      if (!visEl) {
-        try { visEl = linkEl.querySelector(":scope > visual") || linkEl.querySelector("visual"); } catch (e) {}
-      }
-
+      const visEl = linkEl.getElementsByTagName("visual")[0];
       if (visEl) {
-        let origEl = getChildTag(visEl, "origin");
-        if (!origEl) {
-          try { origEl = visEl.querySelector(":scope > origin") || visEl.querySelector("origin"); } catch (e) {}
-        }
+        const origEl = visEl.getElementsByTagName("origin")[0];
         const xyz = origEl ? parseNumbers(origEl.getAttribute("xyz"), 3) : [0, 0, 0];
         const rpy = origEl ? parseNumbers(origEl.getAttribute("rpy"), 3) : [0, 0, 0];
 
         let geomData = null;
-        let geomEl = getChildTag(visEl, "geometry");
-        if (!geomEl) {
-          try { geomEl = visEl.querySelector(":scope > geometry") || visEl.querySelector("geometry"); } catch (e) {}
-        }
-        if (geomEl && geomEl.children.length > 0) {
-          const childEl = geomEl.children[0];
-          const childTag = childEl.tagName.toLowerCase();
-          if (childTag === "box") {
-            const size = parseNumbers(childEl.getAttribute("size"), 3);
-            geomData = { type: "box", size };
-          } else if (childTag === "cylinder") {
-            const radius = parseFloat(childEl.getAttribute("radius")) || 0.05;
-            const length = parseFloat(childEl.getAttribute("length")) || 0.1;
-            geomData = { type: "cylinder", radius, length };
-          } else if (childTag === "sphere") {
-            const radius = parseFloat(childEl.getAttribute("radius")) || 0.05;
-            geomData = { type: "sphere", radius };
-          } else if (childTag === "mesh") {
-            const filename = childEl.getAttribute("filename") || "";
-            const scale = parseNumbers(childEl.getAttribute("scale") || "1 1 1", 3);
-            geomData = { type: "mesh", filename, scale };
+        const geomEl = visEl.getElementsByTagName("geometry")[0];
+        if (geomEl) {
+          const boxEl = geomEl.getElementsByTagName("box")[0];
+          const cylEl = geomEl.getElementsByTagName("cylinder")[0];
+          const sphEl = geomEl.getElementsByTagName("sphere")[0];
+          const meshEl = geomEl.getElementsByTagName("mesh")[0];
+
+          if (boxEl) {
+            geomData = { type: "box", size: parseNumbers(boxEl.getAttribute("size"), 3) };
+          } else if (cylEl) {
+            geomData = {
+              type: "cylinder",
+              radius: parseFloat(cylEl.getAttribute("radius")) || 0.05,
+              length: parseFloat(cylEl.getAttribute("length")) || 0.1
+            };
+          } else if (sphEl) {
+            geomData = {
+              type: "sphere",
+              radius: parseFloat(sphEl.getAttribute("radius")) || 0.05
+            };
+          } else if (meshEl) {
+            geomData = {
+              type: "mesh",
+              filename: meshEl.getAttribute("filename") || "",
+              scale: parseNumbers(meshEl.getAttribute("scale") || "1 1 1", 3)
+            };
           }
         }
 
         let colorRgba = null;
-        let matEl = getChildTag(visEl, "material");
-        if (!matEl) {
-          try { matEl = visEl.querySelector(":scope > material") || visEl.querySelector("material"); } catch (e) {}
-        }
+        const matEl = visEl.getElementsByTagName("material")[0];
         if (matEl) {
-          let colorEl = getChildTag(matEl, "color");
-          if (!colorEl) {
-            try { colorEl = matEl.querySelector("color"); } catch (e) {}
-          }
+          const colorEl = matEl.getElementsByTagName("color")[0];
           if (colorEl && colorEl.getAttribute("rgba")) {
             colorRgba = parseNumbers(colorEl.getAttribute("rgba"), 4);
           } else if (matEl.getAttribute("name") && topMaterials.has(matEl.getAttribute("name"))) {
@@ -340,125 +326,38 @@
 
   function createVisualMesh(linkName, visualData) {
     if (!visualData || !visualData.geom) {
-      // Invisible frame helper
       return new THREE.Group();
     }
 
-    let geometry = null;
+    const group = new THREE.Group();
     const g = visualData.geom;
     const n = (linkName || "").toLowerCase();
 
-    if (g.type === "box") {
-      geometry = new THREE.BoxGeometry(g.size[0], g.size[1], g.size[2]);
-    } else if (g.type === "cylinder") {
-      geometry = new THREE.CylinderGeometry(g.radius, g.radius, g.length, 32);
-      // URDF cylinders are along Z; Three.js is along Y. Rotate geometry 90 deg around X.
-      geometry.rotateX(Math.PI / 2);
-    } else if (g.type === "sphere") {
-      geometry = new THREE.SphereGeometry(g.radius, 32, 16);
-    } else if (g.type === "mesh") {
-      const fn = (g.filename || "").toLowerCase();
+    // Node joint material (polished metallic chrome)
+    const nodeMat = new THREE.MeshStandardMaterial({
+      color: 0xd8dde8,
+      metalness: 0.85,
+      roughness: 0.20
+    });
 
-      // Sleek cylindrical link bodies for robot arm segments
-      let geomType = "cylinder";
-      let cylRadius = 0.018;
-      let cylLength = 0.05;
-      let boxSize = null;
-      let offset = [0, 0, 0];
-      let axis = "z"; // default cylinder axis along Z in robot coordinates
-
-      if (n.includes('base_link') || fn.includes('base')) {
-        cylRadius = 0.065;
-        cylLength = 0.035;
-        axis = "z";
-        offset = [0, 0, 0.0175];
-      } else if (n.includes('shoulder') || fn.includes('shoulder')) {
-        cylRadius = 0.038;
-        cylLength = 0.045;
-        axis = "z";
-        offset = [0, 0, 0.0225];
-      } else if (n.includes('upper_arm') || fn.includes('upper')) {
-        // Upper arm boom cylinder connecting shoulder to elbow
-        cylRadius = 0.022;
-        cylLength = 0.19;
-        axis = "upper"; // tilted slightly toward elbow
-        offset = [0.025, 0, 0.095];
-      } else if (n.includes('forearm') || fn.includes('forearm')) {
-        // Forearm boom cylinder connecting elbow to wrist along +X
-        cylRadius = 0.018;
-        cylLength = 0.18;
-        axis = "x";
-        offset = [0.09, 0, 0];
-      } else if (n.includes('wrist') || fn.includes('wrist')) {
-        // Wrist cylinder along +X
-        cylRadius = 0.015;
-        cylLength = 0.05;
-        axis = "x";
-        offset = [0.025, 0, 0];
-      } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop')) {
-        // Gripper palm cylinder
-        cylRadius = 0.020;
-        cylLength = 0.035;
-        axis = "x";
-        offset = [0.016, 0, 0];
-      } else if (n.includes('finger') || fn.includes('finger')) {
-        // Gripper finger jaws
-        geomType = "box";
-        boxSize = [0.028, 0.007, 0.014];
-        const yOff = n.includes('left') ? 0.004 : (n.includes('right') ? -0.004 : 0);
-        offset = [0.014, yOff, 0];
-      } else if (n.includes('bar') || n.includes('prop') || n.includes('ee_')) {
-        cylRadius = 0.008;
-        cylLength = 0.016;
-        axis = "z";
-      } else {
-        cylRadius = 0.018;
-        cylLength = 0.05;
-        axis = "z";
-      }
-
-      if (geomType === "box" && boxSize) {
-        geometry = new THREE.BoxGeometry(boxSize[0], boxSize[1], boxSize[2]);
-      } else {
-        geometry = new THREE.CylinderGeometry(cylRadius, cylRadius, cylLength, 24);
-        if (axis === "z") {
-          geometry.rotateX(Math.PI / 2);
-        } else if (axis === "x") {
-          geometry.rotateZ(Math.PI / 2);
-        } else if (axis === "upper") {
-          geometry.rotateX(Math.PI / 2);
-          geometry.rotateY(0.245);
-        }
-      }
-
-      const ox0 = visualData.xyz[0];
-      const oy0 = visualData.xyz[1];
-      const oz0 = visualData.xyz[2];
-      if (ox0 === 0 && oy0 === 0 && oz0 === 0) {
-        if (offset[0] !== 0 || offset[1] !== 0 || offset[2] !== 0) {
-          geometry.translate(offset[0], offset[1], offset[2]);
-        }
-      }
-    }
-
-    // Material
-    let matColor = getFallbackColor(linkName);
+    let primaryColor = getFallbackColor(linkName);
     let opacity = 1.0;
     if (visualData.color && visualData.color.length >= 4) {
       const [r, gr, b, a] = visualData.color;
-      matColor = new THREE.Color(r, gr, b);
+      primaryColor = new THREE.Color(r, gr, b);
       opacity = a;
     }
 
-    const material = new THREE.MeshStandardMaterial({
-      color: matColor,
-      roughness: 0.35,
-      metalness: 0.25,
+    // Arm connector material for skinny cylinder links
+    const armConnectorMat = new THREE.MeshStandardMaterial({
+      color: primaryColor,
+      metalness: 0.45,
+      roughness: 0.30,
       opacity: opacity,
       transparent: opacity < 1.0
     });
 
-    // 8x8 Checkered Chess Board Texture
+    // 1. Checkered 8x8 Chessboard Surface
     if (linkName === 'board_surface') {
       const canvas = document.createElement('canvas');
       canvas.width = 512;
@@ -472,37 +371,143 @@
         }
       }
       const boardTexture = new THREE.CanvasTexture(canvas);
-      material.map = boardTexture;
-      material.roughness = 0.45;
-      material.needsUpdate = true;
+      const boardMat = new THREE.MeshStandardMaterial({
+        map: boardTexture,
+        roughness: 0.45
+      });
+      const size = g.size || [0.32, 0.32, 0.002];
+      const boardMesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), boardMat);
+      boardMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      boardMesh.receiveShadow = true;
+      group.add(boardMesh);
+      return group;
     }
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    // 2. Chess Pieces (Small Boxes)
+    if (linkName.startsWith('piece_')) {
+      const boxW = (g && g.radius) ? g.radius * 2 : 0.024;
+      const boxH = (g && g.length) ? g.length : 0.036;
+      const pieceGeom = new THREE.BoxGeometry(boxW, boxW, boxH);
+      const pieceMesh = new THREE.Mesh(pieceGeom, armConnectorMat);
+      pieceMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      pieceMesh.castShadow = true;
+      pieceMesh.receiveShadow = true;
+      group.add(pieceMesh);
 
-    // Apply visual origin offset relative to link frame
-    const ox = visualData.xyz[0];
-    const oy = visualData.xyz[1];
-    const oz = visualData.xyz[2];
-    mesh.position.set(ox, oy, oz);
+      if (linkName === 'piece_pawn_e2') {
+        const topGeom = new THREE.BoxGeometry(boxW * 0.75, boxW * 0.75, 0.005);
+        const topMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 });
+        const topMesh = new THREE.Mesh(topGeom, topMat);
+        topMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2] + boxH / 2 + 0.0025);
+        group.add(topMesh);
+      }
+      return group;
+    }
 
-    // Fixed-axis roll-pitch-yaw: R = Rz(yaw) * Ry(pitch) * Rx(roll)
+    // 3. Table Base & Chess Board Border (Boxes)
+    if (linkName === 'table_base' || linkName === 'chess_board') {
+      const size = g.size || [0.4, 0.4, 0.02];
+      const boxMesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), armConnectorMat);
+      boxMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      boxMesh.castShadow = true;
+      boxMesh.receiveShadow = true;
+      group.add(boxMesh);
+      if (linkName === 'table_base') {
+        group.add(new THREE.AxesHelper(0.08));
+      }
+      return group;
+    }
+
+    // 4. Gripper Finger Jaws
+    if (n.includes('finger')) {
+      const fSize = (g && g.size) ? g.size : [0.028, 0.007, 0.014];
+      const fingerMesh = new THREE.Mesh(new THREE.BoxGeometry(fSize[0], fSize[1], fSize[2]), armConnectorMat);
+      fingerMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      fingerMesh.castShadow = true;
+      fingerMesh.receiveShadow = true;
+      group.add(fingerMesh);
+      return group;
+    }
+
+    // 5. Robot Arm Segments: Sleek small boxes for each link segment
+    let boxSize = [0.04, 0.04, 0.04];
+    let boxOffset = [0, 0, 0];
+
+    const fn = (g && g.filename || "").toLowerCase();
+
+    if (n.includes('wheel')) {
+      const wGeom = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 24);
+      wGeom.rotateX(Math.PI / 2);
+      const wMesh = new THREE.Mesh(wGeom, armConnectorMat);
+      wMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      group.add(wMesh);
+      return group;
+    }
+
+    if (n.includes('lidar')) {
+      const lGeom = new THREE.CylinderGeometry(0.035, 0.035, 0.04, 24);
+      lGeom.rotateX(Math.PI / 2);
+      const lMesh = new THREE.Mesh(lGeom, armConnectorMat);
+      lMesh.position.set(visualData.xyz[0], visualData.xyz[1], visualData.xyz[2]);
+      group.add(lMesh);
+      return group;
+    }
+
+    if (n.includes('base_link') || n === 'arm_base_link' || fn.includes('base')) {
+      boxSize = [0.09, 0.09, 0.035];
+      boxOffset = [0, 0, 0.015];
+    } else if (n.includes('shoulder') || fn.includes('shoulder')) {
+      boxSize = [0.05, 0.05, 0.045];
+      boxOffset = [0, 0, 0.02];
+    } else if (n.includes('upper_arm') || fn.includes('upper')) {
+      boxSize = [0.032, 0.032, 0.18];
+      boxOffset = [0.025, 0, 0.09];
+    } else if (n.includes('forearm') || fn.includes('forearm')) {
+      boxSize = [0.18, 0.028, 0.028];
+      boxOffset = [0.09, 0, 0];
+    } else if (n.includes('wrist') || fn.includes('wrist')) {
+      boxSize = [0.05, 0.024, 0.024];
+      boxOffset = [0.025, 0, 0];
+    } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop')) {
+      boxSize = [0.035, 0.048, 0.024];
+      boxOffset = [0.015, 0, 0];
+    } else if (n.includes('bar') || n.includes('prop') || n.includes('ee_')) {
+      boxSize = [0.012, 0.018, 0.012];
+    } else if (g.type === "box") {
+      boxSize = g.size;
+    } else if (g.type === "cylinder") {
+      boxSize = [g.radius * 2, g.radius * 2, g.length];
+    } else if (g.type === "sphere") {
+      boxSize = [g.radius * 2, g.radius * 2, g.radius * 2];
+    } else {
+      boxSize = [0.04, 0.04, 0.04];
+    }
+
+    const boxGeom = new THREE.BoxGeometry(boxSize[0], boxSize[1], boxSize[2]);
+    const ox0 = visualData.xyz[0];
+    const oy0 = visualData.xyz[1];
+    const oz0 = visualData.xyz[2];
+    if (ox0 === 0 && oy0 === 0 && oz0 === 0) {
+      if (boxOffset[0] !== 0 || boxOffset[1] !== 0 || boxOffset[2] !== 0) {
+        boxGeom.translate(boxOffset[0], boxOffset[1], boxOffset[2]);
+      }
+    }
+
+    const mesh = new THREE.Mesh(boxGeom, armConnectorMat);
+    mesh.position.set(ox0, oy0, oz0);
     const [roll, pitch, yaw] = visualData.rpy;
     mesh.rotation.setFromEuler(new THREE.Euler(roll, pitch, yaw, 'ZYX'));
-
-    const group = new THREE.Group();
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     group.add(mesh);
 
     // Spherical ball joints at joint pivots
     if (linkName === 'arm_base_link' || n.includes('base_link') || n.includes('shoulder') ||
-        n.includes('upper_arm') || n.includes('forearm') || n.includes('wrist') ||
-        (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop'))) {
+        n.includes('upper_arm') || n.includes('forearm') || n.includes('wrist')) {
       const ballRadius = (linkName === 'arm_base_link' || n.includes('base_link')) ? 0.045 :
                          n.includes('shoulder') ? 0.036 :
                          n.includes('upper') ? 0.028 :
-                         n.includes('forearm') ? 0.024 :
-                         n.includes('wrist') ? 0.018 : 0.015;
+                         n.includes('forearm') ? 0.024 : 0.018;
       const ballGeom = new THREE.SphereGeometry(ballRadius, 24, 16);
       const ballMat = new THREE.MeshStandardMaterial({
         color: 0xd8dde8,
@@ -512,26 +517,6 @@
       const ballMesh = new THREE.Mesh(ballGeom, ballMat);
       ballMesh.castShadow = true;
       group.add(ballMesh);
-    }
-
-    // Spherical heads & collar on chess pieces
-    if (linkName.startsWith('piece_')) {
-      const headRadius = linkName.includes('king') ? 0.015 : 0.011;
-      const headGeom = new THREE.SphereGeometry(headRadius, 20, 16);
-      const headMesh = new THREE.Mesh(headGeom, material);
-      const cylLen = (g && g.length) ? g.length : 0.036;
-      headMesh.position.set(ox, oy, oz + cylLen / 2 + headRadius * 0.7);
-      headMesh.castShadow = true;
-      group.add(headMesh);
-
-      if (linkName === 'piece_pawn_e2') {
-        const collarGeom = new THREE.TorusGeometry(0.011, 0.002, 12, 24);
-        collarGeom.rotateX(Math.PI / 2);
-        const collarMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 });
-        const collarMesh = new THREE.Mesh(collarGeom, collarMat);
-        collarMesh.position.set(ox, oy, oz + cylLen / 2);
-        group.add(collarMesh);
-      }
     }
 
     // Subtle axis indicator on root base only
@@ -843,8 +828,10 @@
       // Fetch active description
       const descRes = await fetch('/api/robot_description');
       const descData = await descRes.json();
-      if (descData.description) {
+      if (descData && descData.description) {
         rebuildRobotScene(descData.description);
+      } else if (robotSelect && robotSelect.value) {
+        loadSelectedRobot();
       }
     } catch (e) {
       console.warn("Could not fetch status/robot:", e);
@@ -861,18 +848,17 @@
         body: JSON.stringify({ path: relPath })
       });
       const data = await res.json();
-      if (data.result) {
-        // Fetch new description
+      if (data && data.description) {
+        rebuildRobotScene(data.description);
+      } else {
         const descRes = await fetch('/api/robot_description');
         const descData = await descRes.json();
-        if (descData.description) {
+        if (descData && descData.description) {
           rebuildRobotScene(descData.description);
         }
-      } else {
-        alert("Failed to load robot: " + (data.status?.error || "unknown error"));
       }
     } catch (e) {
-      alert("Error loading robot: " + e.message);
+      console.warn("Error loading robot:", e);
     }
   }
 
