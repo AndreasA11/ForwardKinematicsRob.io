@@ -505,3 +505,81 @@ body {
   color: #93c5fd;
   font-weight: 700;
 }
+
+/* External Robot & Navigation Deck Inputs */
+.text-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.text-input:focus {
+  border-color: var(--border-active);
+}
+.grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.grid-3col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.ext-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+}
+.ext-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-dim);
+  display: inline-block;
+}
+.ext-status-dot.connected {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+}
+.ext-status-dot.connecting {
+  background-color: var(--accent-orange);
+  animation: pulse 1s infinite;
+}
+.ext-status-dot.error {
+  background-color: var(--accent-red);
+}
+.btn-sm {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.nav-deck {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pose-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: block;
+  word-break: break-all;
+}

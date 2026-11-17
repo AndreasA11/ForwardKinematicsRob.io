@@ -52,6 +52,104 @@
             <select id="robotSelect" class="select-control"></select>
           </div>
 
+          <!-- External Robot Gateway (MBot Bridge & ROSBridge) -->
+          <div class="nav-deck">
+            <div class="section-title" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>External Robot Gateway</span>
+              <span id="extActiveProtocolBadge" style="color: var(--accent-blue); font-size: 10px; font-weight: 600;">Offline</span>
+            </div>
+
+            <!-- Protocol Selection -->
+            <div>
+              <label style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Connection Protocol</label>
+              <select id="extProtocolSelect" class="select-control" style="margin-top: 2px;">
+                <option value="mbot">MBot Omni (MBot Bridge / WS :5005)</option>
+                <option value="rosbridge">Trossen RX200 (ROSBridge / :9090 / :9095)</option>
+                <option value="none">Disconnected / Local Only</option>
+              </select>
+            </div>
+
+            <!-- Host & Port Inputs -->
+            <div class="grid-2col">
+              <div>
+                <label style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Host / IP</label>
+                <input type="text" id="extHostInput" class="text-input" value="127.0.0.1" placeholder="IP or hostname" />
+              </div>
+              <div>
+                <label style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Port</label>
+                <input type="number" id="extPortInput" class="text-input" value="5005" placeholder="Port" />
+              </div>
+            </div>
+
+            <!-- Connect / Disconnect Button -->
+            <button id="btnToggleExtConnect" class="btn btn-primary" style="width: 100%;">
+              ⚡ Connect to External Robot
+            </button>
+
+            <!-- Status Indicator -->
+            <div class="ext-status-row">
+              <span class="ext-status-dot" id="extConnDot"></span>
+              <span id="extConnStatusText" style="color: var(--text-muted);">Not Connected</span>
+            </div>
+
+            <!-- MBot Omni Navigation Controls (visible when MBot protocol selected) -->
+            <div id="mbotControlsDeck" style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+              <div class="section-title" style="color: var(--accent-cyan); font-size: 10px;">MBot Live Pose (SLAM_POSE)</div>
+              <div class="pose-badge" id="mbotPoseDisplay">X: 0.000 m | Y: 0.000 m | θ: 0.00°</div>
+
+              <div class="section-title" style="font-size: 10px; margin-top: 2px;">Navigate to Goal (CONTROLLER_PATH)</div>
+              <div class="grid-3col">
+                <div>
+                  <label style="font-size: 9px; color: var(--text-dim);">X (m)</label>
+                  <input type="number" id="mbotGoalX" class="text-input" step="0.1" value="1.0" />
+                </div>
+                <div>
+                  <label style="font-size: 9px; color: var(--text-dim);">Y (m)</label>
+                  <input type="number" id="mbotGoalY" class="text-input" step="0.1" value="0.5" />
+                </div>
+                <div>
+                  <label style="font-size: 9px; color: var(--text-dim);">θ (rad)</label>
+                  <input type="number" id="mbotGoalTheta" class="text-input" step="0.1" value="0.0" />
+                </div>
+              </div>
+
+              <button id="btnMbotSendGoal" class="btn btn-success" style="width: 100%; font-size: 11px;">
+                🚀 Send Navigation Path
+              </button>
+
+              <!-- Path Presets -->
+              <div style="display: flex; gap: 4px; margin-top: 2px;">
+                <button class="btn btn-secondary btn-sm" id="btnPresetSquare" style="flex: 1;" title="1m Square Maneuver">Square</button>
+                <button class="btn btn-secondary btn-sm" id="btnPresetFwdBack" style="flex: 1;" title="Forward 1m and Back">Fwd/Back</button>
+                <button class="btn btn-secondary btn-sm" id="btnPresetRotate" style="flex: 1;" title="Rotate 360 degrees">Spin</button>
+              </div>
+
+              <!-- Emergency Stop -->
+              <button id="btnMbotEmergencyStop" class="btn btn-danger" style="width: 100%; font-weight: 700; margin-top: 4px;">
+                🛑 EMERGENCY STOP (MBOT_VEL_CMD)
+              </button>
+
+              <button id="btnMbotFetchMap" class="btn btn-outline btn-sm" style="width: 100%; margin-top: 2px;">
+                🗺️ Fetch SLAM Map
+              </button>
+            </div>
+
+            <!-- Trossen RX200 Arm Controls (visible when ROSBridge selected) -->
+            <div id="rx200ControlsDeck" style="display: none; flex-direction: column; gap: 6px; margin-top: 4px; border-top: 1px solid var(--border-color); padding-top: 8px;">
+              <div class="section-title" style="color: var(--accent-purple); font-size: 10px;">RX200 Arm Telemetry</div>
+              <div style="font-size: 11px; color: var(--text-muted);" id="rx200ArmStatus">Streaming joint telemetry from ROSBridge...</div>
+              <div class="grid-2col" style="margin-top: 4px;">
+                <button class="btn btn-secondary btn-sm" id="btnArmHome">🏠 Home Pose</button>
+                <button class="btn btn-secondary btn-sm" id="btnArmSleep">💤 Sleep Pose</button>
+                <button class="btn btn-secondary btn-sm" id="btnArmRelease">🖐️ Open Gripper</button>
+                <button class="btn btn-secondary btn-sm" id="btnArmGrasp">✊ Close Gripper</button>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btnArmChessPickAndPlace" style="margin-top: 4px; font-weight: 600; width: 100%; font-size: 11px;">
+                ♟️ Execute Chess Move: Pick & Place (e2 ➔ e4)
+              </button>
+            </div>
+          </div>
+
           <!-- Choreography Selection & FSM status -->
           <div>
             <div class="section-title">FSM Choreography</div>
@@ -146,9 +244,10 @@
     </main>
   </div>
 
-  <!-- Three.js and OrbitControls (Vendored Offline) -->
+  <!-- Three.js, OrbitControls and GLTFLoader (Vendored Offline) -->
   <script src="js/three.min.js"></script>
   <script src="js/OrbitControls.js"></script>
+  <script src="js/GLTFLoader.js"></script>
   <!-- Viewer Application Logic -->
   <script src="viewer.js"></script>
 </body>

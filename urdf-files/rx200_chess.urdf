@@ -1,0 +1,396 @@
+<?xml version="1.0" ?>
+<!-- Trossen RX200 Robot Arm with Chessboard and Pick-and-Place Pieces -->
+<robot name="rx200_chess">
+
+  <!-- Materials matching Portfolio Demo Video -->
+  <material name="table_mat">
+    <color rgba="0.16 0.18 0.22 1.0"/>
+  </material>
+  <material name="board_border_mat">
+    <color rgba="0.30 0.18 0.10 1.0"/>
+  </material>
+  <material name="board_surface_mat">
+    <color rgba="0.75 0.68 0.55 1.0"/>
+  </material>
+  <material name="white_piece_mat">
+    <color rgba="0.94 0.92 0.84 1.0"/>
+  </material>
+  <material name="black_piece_mat">
+    <color rgba="0.14 0.14 0.16 1.0"/>
+  </material>
+  <material name="arm_base_mat">
+    <color rgba="0.16 0.18 0.22 1.0"/>
+  </material>
+  <material name="arm_primary_mat">
+    <color rgba="0.15 0.39 0.92 1.0"/>
+  </material>
+  <material name="arm_accent_mat">
+    <color rgba="0.23 0.51 0.96 1.0"/>
+  </material>
+  <material name="wrist_mat">
+    <color rgba="0.12 0.14 0.18 1.0"/>
+  </material>
+  <material name="finger_mat">
+    <color rgba="0.96 0.62 0.07 1.0"/>
+  </material>
+
+  <!-- ================= BASE TABLE & CHESS ENVIRONMENT ================= -->
+  <link name="table_base">
+    <visual>
+      <origin xyz="0.15 0.0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.85 0.85 0.04"/>
+      </geometry>
+      <material name="table_mat"/>
+    </visual>
+  </link>
+
+  <!-- Chess Board Frame -->
+  <link name="chess_board">
+    <visual>
+      <origin xyz="0 0 0.007" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.36 0.36 0.014"/>
+      </geometry>
+      <material name="board_border_mat"/>
+    </visual>
+  </link>
+
+  <joint name="table_to_board" type="fixed">
+    <parent link="table_base"/>
+    <child link="chess_board"/>
+    <origin xyz="0.26 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Chess Board Playfield Surface -->
+  <link name="board_surface">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.32 0.32 0.002"/>
+      </geometry>
+      <material name="board_surface_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_surface" type="fixed">
+    <parent link="chess_board"/>
+    <child link="board_surface"/>
+    <origin xyz="0 0 0.014" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Target White Pawn at e2 with dynamic pick-and-place degrees of freedom -->
+  <link name="pawn_e2_carrier">
+    <visual>
+      <origin xyz="0 0 0.001" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.002 0.002 0.002"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <!-- Prismatic joint advancing pawn from e2 to e4 along X (0.00 to 0.08 m) -->
+  <joint name="pawn_advance_joint" type="prismatic">
+    <parent link="board_surface"/>
+    <child link="pawn_e2_carrier"/>
+    <origin xyz="-0.06 0.02 0.002" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.02" upper="0.12" effort="10.0" velocity="0.5"/>
+  </joint>
+
+  <!-- Target White Pawn piece -->
+  <link name="piece_pawn_e2">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <!-- Prismatic joint lifting pawn vertically along Z (0.00 to 0.10 m) -->
+  <joint name="pawn_lift_joint" type="prismatic">
+    <parent link="pawn_e2_carrier"/>
+    <child link="piece_pawn_e2"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="0.00" upper="0.15" effort="10.0" velocity="0.5"/>
+  </joint>
+
+  <!-- Target White Pawn at d2 (x = -0.06, y = -0.02 on board) -->
+  <link name="piece_pawn_d2">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_pawn_d2" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_pawn_d2"/>
+    <origin xyz="-0.06 -0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Opposing Black Pawn at e7 (x = 0.06, y = 0.02 on board) -->
+  <link name="piece_pawn_e7">
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.012" length="0.036"/>
+      </geometry>
+      <material name="black_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_pawn_e7" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_pawn_e7"/>
+    <origin xyz="0.06 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- White King at e1 (x = -0.10, y = 0.02 on board) -->
+  <link name="piece_king_white">
+    <visual>
+      <origin xyz="0 0 0.028" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.056"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_king_white" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_king_white"/>
+    <origin xyz="-0.10 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Black King at e8 (x = 0.10, y = 0.02 on board) -->
+  <link name="piece_king_black">
+    <visual>
+      <origin xyz="0 0 0.028" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.056"/>
+      </geometry>
+      <material name="black_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_king_black" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_king_black"/>
+    <origin xyz="0.10 0.02 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- White Knight at g1 (x = -0.10, y = 0.10 on board) -->
+  <link name="piece_knight_white">
+    <visual>
+      <origin xyz="0 0 0.024" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.014" length="0.048"/>
+      </geometry>
+      <material name="white_piece_mat"/>
+    </visual>
+  </link>
+
+  <joint name="board_to_knight_white" type="fixed">
+    <parent link="board_surface"/>
+    <child link="piece_knight_white"/>
+    <origin xyz="-0.10 0.10 0.002" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Mount Trossen RX200 to table base -->
+  <joint name="table_to_rx200_base" type="fixed">
+    <parent link="table_base"/>
+    <child link="rx200/base_link"/>
+    <origin xyz="-0.02 0.0 0.0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================= TROSSEN RX200 ROBOT ARM ================= -->
+  <!-- 1. Turntable Pedestal Base -->
+  <link name="rx200/base_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.065" length="0.04"/>
+      </geometry>
+      <material name="arm_base_mat"/>
+    </visual>
+  </link>
+
+  <joint name="waist" type="revolute">
+    <axis xyz="0 0 1"/>
+    <limit effort="8" lower="-3.141582653589793" upper="3.141582653589793" velocity="3.141592653589793"/>
+    <origin xyz="0 0 0.06566" rpy="0 0 0"/>
+    <parent link="rx200/base_link"/>
+    <child link="rx200/shoulder_link"/>
+  </joint>
+
+  <!-- 2. Rotating Shoulder Turret -->
+  <link name="rx200/shoulder_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.042" length="0.045"/>
+      </geometry>
+      <material name="arm_accent_mat"/>
+    </visual>
+  </link>
+
+  <joint name="shoulder" type="revolute">
+    <axis xyz="0 1 0"/>
+    <limit effort="18" lower="-1.8849555921538759" upper="1.9722220547535925" velocity="1"/>
+    <origin xyz="0 0 0.03891" rpy="0 0 0"/>
+    <parent link="rx200/shoulder_link"/>
+    <child link="rx200/upper_arm_link"/>
+  </joint>
+
+  <!-- 3. Slender Upper Arm Boom (Connects shoulder to elbow) -->
+  <link name="rx200/upper_arm_link">
+    <visual>
+      <origin xyz="0.025 0 0.10" rpy="0 0.245 0"/>
+      <geometry>
+        <cylinder radius="0.026" length="0.20"/>
+      </geometry>
+      <material name="arm_primary_mat"/>
+    </visual>
+  </link>
+
+  <joint name="elbow" type="revolute">
+    <axis xyz="0 1 0"/>
+    <limit effort="13" lower="-1.8849555921538759" upper="1.6231562043547265" velocity="3.141592653589793"/>
+    <origin xyz="0.05 0 0.2" rpy="0 0 0"/>
+    <parent link="rx200/upper_arm_link"/>
+    <child link="rx200/forearm_link"/>
+  </joint>
+
+  <!-- 4. Slender Forearm Boom (Connects elbow to wrist along +X) -->
+  <link name="rx200/forearm_link">
+    <visual>
+      <origin xyz="0.10 0 0" rpy="0 1.5707963267948966 0"/>
+      <geometry>
+        <cylinder radius="0.022" length="0.19"/>
+      </geometry>
+      <material name="arm_primary_mat"/>
+    </visual>
+  </link>
+
+  <joint name="wrist_angle" type="revolute">
+    <axis xyz="0 1 0"/>
+    <limit effort="5" lower="-1.7453292519943295" upper="2.1467549799530254" velocity="3.141592653589793"/>
+    <origin xyz="0.2 0 0" rpy="0 0 0"/>
+    <parent link="rx200/forearm_link"/>
+    <child link="rx200/wrist_link"/>
+  </joint>
+
+  <!-- 5. Sleek Wrist Segment (along +X) -->
+  <link name="rx200/wrist_link">
+    <visual>
+      <origin xyz="0.032 0 0" rpy="0 1.5707963267948966 0"/>
+      <geometry>
+        <cylinder radius="0.018" length="0.055"/>
+      </geometry>
+      <material name="wrist_mat"/>
+    </visual>
+  </link>
+
+  <joint name="wrist_rotate" type="revolute">
+    <axis xyz="1 0 0"/>
+    <limit effort="3" lower="-3.141582653589793" upper="3.141582653589793" velocity="3.141592653589793"/>
+    <origin xyz="0.065 0 0" rpy="0 0 0"/>
+    <parent link="rx200/wrist_link"/>
+    <child link="rx200/gripper_link"/>
+  </joint>
+
+  <!-- 6. Compact Gripper Palm Housing (along +X) -->
+  <link name="rx200/gripper_link">
+    <visual>
+      <origin xyz="0.018 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.035 0.055 0.028"/>
+      </geometry>
+      <material name="wrist_mat"/>
+    </visual>
+  </link>
+
+  <joint name="ee_arm" type="fixed">
+    <axis xyz="1 0 0"/>
+    <origin xyz="0.043 0 0" rpy="0 0 0"/>
+    <parent link="rx200/gripper_link"/>
+    <child link="rx200/gripper_prop_link"/>
+  </joint>
+
+  <link name="rx200/gripper_prop_link"/>
+
+  <joint name="gripper" type="continuous">
+    <axis xyz="1 0 0"/>
+    <limit effort="1" velocity="3.141592653589793"/>
+    <origin xyz="0.0055 0 0" rpy="0 0 0"/>
+    <parent link="rx200/gripper_prop_link"/>
+    <child link="rx200/gripper_bar_link"/>
+  </joint>
+
+  <link name="rx200/gripper_bar_link"/>
+
+  <joint name="ee_bar" type="fixed">
+    <axis xyz="1 0 0"/>
+    <origin xyz="0.023 0 0" rpy="0 0 0"/>
+    <parent link="rx200/gripper_bar_link"/>
+    <child link="rx200/fingers_link"/>
+  </joint>
+
+  <link name="rx200/fingers_link"/>
+
+  <!-- 7. Precision Left Gripper Jaw (Moves along +Y, radiant gold) -->
+  <joint name="left_finger" type="prismatic">
+    <axis xyz="0 1 0"/>
+    <limit effort="5" lower="0.015" upper="0.037" velocity="1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="rx200/fingers_link"/>
+    <child link="rx200/left_finger_link"/>
+  </joint>
+
+  <link name="rx200/left_finger_link">
+    <visual>
+      <origin xyz="0.018 0.005 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.032 0.008 0.016"/>
+      </geometry>
+      <material name="finger_mat"/>
+    </visual>
+  </link>
+
+  <!-- 8. Precision Right Gripper Jaw (Moves along -Y, radiant gold) -->
+  <joint name="right_finger" type="prismatic">
+    <axis xyz="0 1 0"/>
+    <limit effort="5" lower="-0.037" upper="-0.015" velocity="1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="rx200/fingers_link"/>
+    <child link="rx200/right_finger_link"/>
+  </joint>
+
+  <link name="rx200/right_finger_link">
+    <visual>
+      <origin xyz="0.018 -0.005 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.032 0.008 0.016"/>
+      </geometry>
+      <material name="finger_mat"/>
+    </visual>
+  </link>
+
+  <joint name="ee_gripper" type="fixed">
+    <axis xyz="1 0 0"/>
+    <origin xyz="0.027575 0 0" rpy="0 0 0"/>
+    <parent link="rx200/fingers_link"/>
+    <child link="rx200/ee_gripper_link"/>
+  </joint>
+
+  <link name="rx200/ee_gripper_link"/>
+
+</robot>

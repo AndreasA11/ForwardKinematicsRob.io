@@ -1,4 +1,4 @@
-.PHONY: build run demo demo-portfolio portfolio portfolio-video viewer clean test test-tcp
+.PHONY: build run demo demo-portfolio portfolio portfolio-video viewer clean test test-tcp mbot mbot-docker arm
 PUGIXML := third_party/pugixml
 build: main build/urdf_example
 
@@ -92,5 +92,17 @@ portfolio-video: build
 # *CHANGES*: Launch Task 13 external 3D robot viewer and portfolio server.
 viewer:
 	python3 scripts/viewer.py
+# *CHANGES*: Launch MBot Omni navigation runtime with MBot Bridge protocol interface.
+mbot: build
+	./launch_mbot_docker.bash $(MBOT_HOST) $(MBOT_PORT)
+
+# *CHANGES*: Launch Trossen RX200 arm runtime with ROSBridge protocol interface.
+arm: build
+	./launch_arm.bash $(ARM_HOST) $(ARM_PORT)
+
+# *CHANGES*: Launch MBot Omni navigation runtime inside Docker environment.
+mbot-docker: build
+	./launch_mbot_docker.bash --docker $(MBOT_HOST) $(MBOT_PORT)
+
 clean:
 	rm -rf main build

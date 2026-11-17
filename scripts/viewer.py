@@ -12,6 +12,7 @@ Provides:
 import argparse
 import itertools
 import json
+import math
 import os
 import select
 import signal
@@ -22,8 +23,14 @@ import time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
+from typing import Any, Dict, List, Optional, Tuple
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from bridges.mbot_client import MbotClient
+from bridges.rosbridge_arm_client import RosbridgeArmClient
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -92,6 +99,30 @@ class TcpRosbridgeClient:
             self._send_raw({"op": "subscribe", "topic": "/xform_world", "type": "xform_world/MatrixTransformArray"})
             self._send_raw({"op": "subscribe", "topic": "/fsm/status", "type": "fsm/Status"})
             self._send_raw({"op": "subscribe", "topic": "/joint_states", "type": "sensor_msgs/JointState"})
+            self._send_raw({"op": "subscribe", "topic": "/joint_trajectory", "type": "trajectory_msgs/JointTrajectory"})
+
+            # Auto-prime default robot description if parameter server is unpopulated
+            def _init_default_urdf():
+                time.sleep(0.15)
+                ok, vals = self.call_service("/param_server/get_param", {"name": "robot_description"}, timeout=1.5)
+                if not ok or not vals or not vals.get("value"):
+                    cands = [
+                        os.path.join(ROOT_DIR, "urdf-files", "rx200_chess.urdf"),
+                        os.path.join(ROOT_DIR, "robots", "rx200", "rx200_chess.urdf"),
+                        os.path.join(ROOT_DIR, "urdf-files", "chess_arm.urdf"),
+                    ]
+                    for cand in cands:
+                        if os.path.exists(cand):
+                            try:
+                                with open(cand, "r", encoding="utf-8") as f:
+                                    content = f.read()
+                                self.call_service("/param_server/set_param", {"name": "robot_description", "value": content}, timeout=2.0)
+                                self.latest_robot_description = content
+                                print(f"[Viewer Backend] Primed initial robot description from {os.path.basename(cand)}")
+                                break
+                            except Exception:
+                                pass
+            threading.Thread(target=_init_default_urdf, daemon=True).start()
             return True
         except Exception as e:
             self.connected = False
@@ -196,6 +227,28 @@ class TcpRosbridgeClient:
             elif topic == "/joint_states":
                 self.latest_joint_states = msg
                 self._broadcast(msg)
+            elif topic == "/joint_trajectory":
+                self._broadcast(msg)
+                # Forward trajectory setpoints to physical RX200 arm if connected
+                if external_bridge and external_bridge.arm_client and external_bridge.status == "connected":
+                    body = msg.get("msg", {})
+                    names = body.get("joint_names", [])
+                    points = body.get("points", [])
+                    if points and names:
+                        pt = points[0]
+                        positions = pt.get("positions", [])
+                        duration = 1.4
+                        tf = pt.get("time_from_start", {})
+                        if isinstance(tf, dict):
+                            dur = tf.get("sec", 0) + tf.get("nanosec", 0) * 1e-9
+                            if dur > 0.1:
+                                duration = dur
+                        arm_pos = {}
+                        for n, p in zip(names, positions):
+                            if n in RosbridgeArmClient.RX200_JOINTS:
+                                arm_pos[n] = float(p)
+                        if arm_pos:
+                            external_bridge.arm_client.send_joint_positions(arm_pos, duration=duration)
         elif op == "service_response":
             call_id = msg.get("id")
             if call_id:
@@ -207,7 +260,9 @@ class TcpRosbridgeClient:
                     event.set()
 
     def fetch_current_robot_description(self):
-        ok, vals = self.call_service("/param_server/get_param", {"name": "robot_description"})
+        if self.latest_robot_description:
+            return self.latest_robot_description
+        ok, vals = self.call_service("/param_server/get_param", {"name": "robot_description"}, timeout=1.5)
         if ok and vals and vals.get("value"):
             self.latest_robot_description = str(vals.get("value"))
             return self.latest_robot_description
@@ -221,8 +276,219 @@ class TcpRosbridgeClient:
         return {}
 
 
-# Global TCP client
+# Global TCP client and External Robot Bridge
 tcp_client = None
+external_bridge = None
+
+
+class ExternalRobotBridge:
+    """Manages an active external robot connection (MBot Bridge or ROSBridge).
+
+    Enforces the constraint: only one external robot client is active at a time.
+    """
+
+    def __init__(self, local_client: Optional[TcpRosbridgeClient] = None):
+        self.local_client = local_client
+        self.mode = "none"  # "none", "mbot", "rosbridge"
+        self.host = "127.0.0.1"
+        self.port = 5005
+        self.status = "disconnected"  # "disconnected", "connecting", "connected", "error"
+        self.last_error = ""
+        self.lock = threading.Lock()
+
+        self.mbot_client: Optional[MbotClient] = None
+        self.arm_client: Optional[RosbridgeArmClient] = None
+
+        self.latest_mbot_pose = None
+        self.latest_arm_joints: Dict[str, float] = {}
+
+    def get_status(self) -> Dict[str, Any]:
+        with self.lock:
+            return {
+                "mode": self.mode,
+                "host": self.host,
+                "port": self.port,
+                "connected": self.status == "connected",
+                "status": self.status,
+                "last_error": self.last_error,
+                "mbot_pose": self.latest_mbot_pose,
+                "arm_joints": self.latest_arm_joints,
+            }
+
+    def disconnect(self):
+        with self.lock:
+            if self.mbot_client:
+                try:
+                    self.mbot_client.disconnect()
+                except Exception:
+                    pass
+                self.mbot_client = None
+            if self.arm_client:
+                try:
+                    self.arm_client.disconnect()
+                except Exception:
+                    pass
+                self.arm_client = None
+            self.mode = "none"
+            self.status = "disconnected"
+            self.last_error = ""
+            print("[External Robot Bridge] Disconnected.")
+
+    def connect(self, mode: str, host: str, port: int) -> Tuple[bool, str]:
+        # Disconnect any existing external connection first (only one active at a time)
+        self.disconnect()
+
+        with self.lock:
+            self.mode = mode
+            self.host = str(host).strip()
+            self.port = int(port)
+            self.status = "connecting"
+            self.last_error = ""
+
+        print(f"[External Robot Bridge] Connecting to {mode} at {self.host}:{self.port}...")
+
+        if mode == "mbot":
+            client = MbotClient(self.host, self.port)
+            if not client.connect():
+                err = f"Could not connect to MBot Bridge at {self.host}:{self.port}"
+                with self.lock:
+                    self.status = "error"
+                    self.last_error = err
+                print(f"[External Robot Bridge] {err}")
+                return False, err
+
+            def on_mbot_pose(x, y, theta):
+                self.latest_mbot_pose = {"x": x, "y": y, "theta": theta}
+                # 1. Forward to local C++ runtime /global_pose
+                z_half = theta / 2.0
+                pose_msg = {
+                    "position": {"x": x, "y": y, "z": 0.0},
+                    "orientation": {"x": 0.0, "y": 0.0, "z": math.sin(z_half), "w": math.cos(z_half)},
+                }
+                if self.local_client and self.local_client.connected:
+                    self.local_client._send_raw({
+                        "op": "publish",
+                        "topic": "/global_pose",
+                        "msg": pose_msg,
+                    })
+                # 2. Broadcast via SSE to browser
+                if self.local_client:
+                    self.local_client._broadcast({
+                        "topic": "/mbot/pose",
+                        "data": self.latest_mbot_pose,
+                    })
+
+            client.add_pose_callback(on_mbot_pose)
+            client.start_pose_stream(rate_hz=10.0)
+
+            with self.lock:
+                self.mbot_client = client
+                self.status = "connected"
+            print(f"[External Robot Bridge] Successfully connected to MBot Bridge at {self.host}:{self.port}")
+            return True, "Connected to MBot Bridge"
+
+        elif mode == "rosbridge":
+            client = RosbridgeArmClient(self.host, self.port)
+            if not client.connect():
+                err = f"Could not connect to ROSBridge arm at {self.host}:{self.port}"
+                with self.lock:
+                    self.status = "error"
+                    self.last_error = err
+                print(f"[External Robot Bridge] {err}")
+                return False, err
+
+            def on_joints(joint_dict):
+                self.latest_arm_joints = joint_dict
+                # Forward to local C++ runtime /joint_states
+                names = list(joint_dict.keys())
+                positions = list(joint_dict.values())
+                js_msg = {
+                    "name": names,
+                    "position": positions,
+                }
+                if self.local_client and self.local_client.connected:
+                    self.local_client._send_raw({
+                        "op": "publish",
+                        "topic": "/joint_states",
+                        "msg": js_msg,
+                    })
+                if self.local_client:
+                    self.local_client._broadcast({
+                        "topic": "/joint_states",
+                        "msg": js_msg,
+                    })
+
+            client.add_joint_callback(on_joints)
+
+            with self.lock:
+                self.arm_client = client
+                self.status = "connected"
+            print(f"[External Robot Bridge] Successfully connected to ROSBridge at {self.host}:{self.port}")
+            return True, "Connected to ROSBridge robot arm"
+
+        else:
+            with self.lock:
+                self.mode = "none"
+                self.status = "disconnected"
+            return False, f"Unknown mode: {mode}"
+
+    def mbot_navigate(self, waypoints: List[Dict[str, float]]) -> Tuple[bool, str]:
+        with self.lock:
+            if not self.mbot_client or self.status != "connected":
+                return False, "MBot Bridge is not connected"
+            ok = self.mbot_client.send_path(waypoints)
+            return ok, "Path sent to MBot" if ok else "Failed to send path"
+
+    def mbot_stop(self) -> Tuple[bool, str]:
+        with self.lock:
+            if not self.mbot_client or self.status != "connected":
+                return False, "MBot Bridge is not connected"
+            ok = self.mbot_client.stop()
+            return ok, "Stop command sent to MBot" if ok else "Failed to stop MBot"
+
+    def mbot_get_map(self) -> Tuple[bool, Any]:
+        with self.lock:
+            if not self.mbot_client or self.status != "connected":
+                return False, "MBot Bridge is not connected"
+            m = self.mbot_client.read_map()
+            return (True, m) if m is not None else (False, "Failed to read map")
+
+    def arm_command(self, action: str, data: Any = None) -> Tuple[bool, str]:
+        with self.lock:
+            if action in ("chess_pick_and_place", "chess_move"):
+                # 1. Trigger autonomous chess pick and place sequence directly on physical arm if connected
+                if self.arm_client and self.status == "connected":
+                    self.arm_client.execute_chess_pick_and_place(duration_per_step=1.4)
+                # 2. Also start the local C++ FSM so the 3D visualizer animates in sync
+                if self.local_client and self.local_client.connected:
+                    ident = "rx200_chess_pick_and_place"
+                    cand = os.path.join(ROOT_DIR, "fsm", f"{ident}.json")
+                    if not os.path.exists(cand):
+                        ident = "rx200_chess_arm_only"
+                    ok1, res1 = self.local_client.call_service("/fsm/load_from_file", {"identifier": ident})
+                    if ok1:
+                        self.local_client.call_service("/fsm/update_logic", res1)
+                        self.local_client.call_service("/fsm/set_running", {"data": True})
+                        return True, f"Started {ident} on RX200 and visualizer"
+                if self.arm_client and self.status == "connected":
+                    return True, "Executing Chess Pick & Place on physical RX200"
+                return False, "Could not start chess FSM"
+
+            if not self.arm_client or self.status != "connected":
+                return False, "ROSBridge arm is not connected"
+            if action in ("home", "sleep", "upright"):
+                ok = self.arm_client.go_to_preset(action)
+                return ok, f"Preset {action} sent" if ok else "Failed to send preset"
+            elif action == "release":
+                ok = self.arm_client.release_gripper()
+                return ok, "Gripper released" if ok else "Failed to release gripper"
+            elif action == "grasp":
+                ok = self.arm_client.grasp_gripper()
+                return ok, "Gripper grasped" if ok else "Failed to grasp gripper"
+            elif action == "positions" and isinstance(data, dict):
+                ok = self.arm_client.send_joint_positions(data)
+                return ok, "Joint positions sent" if ok else "Failed to send positions"
+            return False, f"Unknown arm action: {action}"
 
 
 class ViewerRequestHandler(BaseHTTPRequestHandler):
@@ -296,36 +562,53 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
                 "has_robot": bool(desc_status.get("accepted", False)),
                 "loaded_version": desc_status.get("loaded_version", 0),
                 "root_link": desc_status.get("root_link", ""),
-                "latest_fsm_status": tcp_client.latest_fsm_status.get("msg") if tcp_client.latest_fsm_status else None
+                "latest_fsm_status": tcp_client.latest_fsm_status.get("msg") if tcp_client.latest_fsm_status else None,
+                "external_robot": external_bridge.get_status() if external_bridge else None,
             }
             self._send_json(200, res)
+            return
+
+        if path == "/api/external_robot/status":
+            st = external_bridge.get_status() if external_bridge else {"mode": "none", "connected": False}
+            self._send_json(200, st)
             return
 
         if path == "/api/robot_description":
             desc = tcp_client.fetch_current_robot_description()
             if not desc:
-                # Default to chess_arm.urdf if available, else fetch/fetch.urdf
+                # Default to rx200_chess.urdf if available, else chess_arm.urdf, else fetch
+                rx200_chess = os.path.join(ROOT_DIR, "urdf-files", "rx200_chess.urdf")
                 chess_path = os.path.join(ROOT_DIR, "urdf-files", "chess_arm.urdf")
                 fetch_path = os.path.join(ROOT_DIR, "fetch", "fetch.urdf")
-                candidate = chess_path if os.path.exists(chess_path) else fetch_path
+                candidate = rx200_chess if os.path.exists(rx200_chess) else (chess_path if os.path.exists(chess_path) else fetch_path)
                 if os.path.exists(candidate):
                     with open(candidate, "r", encoding="utf-8") as f:
                         desc = f.read()
+                        tcp_client.latest_robot_description = desc
             self._send_json(200, {"description": desc})
             return
 
         if path == "/api/robot_list":
             robots = []
+            rx200_chess_path = os.path.join(ROOT_DIR, "urdf-files", "rx200_chess.urdf")
+            if os.path.exists(rx200_chess_path):
+                robots.append({"id": "rx200_chess", "name": "Trossen RX200 (Chess Manipulator Arm)", "path": "urdf-files/rx200_chess.urdf"})
+            rx200_path = os.path.join(ROOT_DIR, "urdf-files", "rx200.urdf")
+            if os.path.exists(rx200_path):
+                robots.append({"id": "rx200", "name": "Trossen RX200 (Standalone Arm)", "path": "urdf-files/rx200.urdf"})
             chess_path = os.path.join(ROOT_DIR, "urdf-files", "chess_arm.urdf")
             if os.path.exists(chess_path):
                 robots.append({"id": "chess_arm", "name": "Chess Manipulator Arm (7-DOF)", "path": "urdf-files/chess_arm.urdf"})
+            mbot_path = os.path.join(ROOT_DIR, "robots", "mbot", "mbot.urdf")
+            if os.path.exists(mbot_path):
+                robots.append({"id": "mbot_omni", "name": "MBot Omni (Mobile Robot)", "path": "robots/mbot/mbot.urdf"})
             fetch_path = os.path.join(ROOT_DIR, "fetch", "fetch.urdf")
             if os.path.exists(fetch_path):
                 robots.append({"id": "fetch", "name": "Fetch Mobile Manipulator", "path": "fetch/fetch.urdf"})
             urdf_dir = os.path.join(ROOT_DIR, "urdf-files")
             if os.path.exists(urdf_dir):
                 for f in sorted(os.listdir(urdf_dir)):
-                    if (f.endswith(".urdf") or f.endswith(".xml")) and f != "chess_arm.urdf":
+                    if (f.endswith(".urdf") or f.endswith(".xml")) and f not in ("chess_arm.urdf", "rx200.urdf", "rx200_chess.urdf", "mbot.urdf"):
                         robots.append({"id": f, "name": f, "path": os.path.join("urdf-files", f)})
             self._send_json(200, {"robots": robots})
             return
@@ -334,11 +617,16 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             fsm_dir = os.path.join(ROOT_DIR, "fsm")
             fsm_files = []
             if os.path.exists(fsm_dir):
-                # Put chess_pick_and_place first if present
+                priority = [
+                    "rx200_chess_pick_and_place.json",
+                    "rx200_chess_arm_only.json",
+                    "chess_pick_and_place.json"
+                ]
+                for p in priority:
+                    if os.path.exists(os.path.join(fsm_dir, p)):
+                        fsm_files.append({"identifier": p[:-5], "filename": p})
                 for f in sorted(os.listdir(fsm_dir)):
-                    if f == "chess_pick_and_place.json":
-                        fsm_files.insert(0, {"identifier": f[:-5], "filename": f})
-                    elif f.endswith(".json"):
+                    if f.endswith(".json") and f not in priority:
                         fsm_files.append({"identifier": f[:-5], "filename": f})
             self._send_json(200, {"fsm_files": fsm_files})
             return
@@ -373,7 +661,7 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             if cand_w.startswith(web_dir) and os.path.exists(cand_w) and not os.path.isdir(cand_w):
                 full_path = cand_w
         else:
-            # Check web_dir first, then portfolio_dir
+            # Check web_dir first, then portfolio_dir, then root_dir (for robots, meshes, bridges)
             cand_w = os.path.normpath(os.path.join(web_dir, clean_path))
             if cand_w.startswith(web_dir) and os.path.exists(cand_w) and not os.path.isdir(cand_w):
                 full_path = cand_w
@@ -381,6 +669,10 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
                 cand_p = os.path.normpath(os.path.join(portfolio_dir, clean_path))
                 if cand_p.startswith(portfolio_dir) and os.path.exists(cand_p) and not os.path.isdir(cand_p):
                     full_path = cand_p
+                else:
+                    cand_r = os.path.normpath(os.path.join(ROOT_DIR, clean_path))
+                    if cand_r.startswith(ROOT_DIR) and os.path.exists(cand_r) and not os.path.isdir(cand_r):
+                        full_path = cand_r
 
         if not full_path or not os.path.exists(full_path) or os.path.isdir(full_path):
             self.send_error(404, f"File Not Found: {path}")
@@ -396,6 +688,11 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             ".svg": "image/svg+xml",
             ".webm": "video/webm",
             ".mp4": "video/mp4",
+            ".glb": "model/gltf-binary",
+            ".gltf": "model/gltf+json",
+            ".stl": "model/stl",
+            ".urdf": "application/xml; charset=utf-8",
+            ".xml": "application/xml; charset=utf-8",
         }
         _, ext = os.path.splitext(full_path)
         content_type = mime_types.get(ext.lower(), "application/octet-stream")
@@ -428,6 +725,51 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
             payload = json.loads(body)
         except Exception:
             payload = {}
+
+        if path == "/api/external_robot/connect":
+            mode = payload.get("mode", "mbot")
+            host = payload.get("host", "127.0.0.1")
+            port = int(payload.get("port", 5005 if mode == "mbot" else 9090))
+            ok, msg = external_bridge.connect(mode, host, port)
+            self._send_json(200, {"result": ok, "message": msg, "status": external_bridge.get_status()})
+            return
+
+        if path == "/api/external_robot/disconnect":
+            external_bridge.disconnect()
+            self._send_json(200, {"result": True, "status": external_bridge.get_status()})
+            return
+
+        if path == "/api/external_robot/mbot/navigate":
+            waypoints = payload.get("waypoints")
+            if not waypoints and "goal" in payload:
+                goal = payload.get("goal")
+                waypoints = [goal]
+            if not waypoints:
+                self._send_json(400, {"result": False, "error": "No waypoints provided"})
+                return
+            ok, msg = external_bridge.mbot_navigate(waypoints)
+            self._send_json(200, {"result": ok, "message": msg})
+            return
+
+        if path == "/api/external_robot/mbot/stop":
+            ok, msg = external_bridge.mbot_stop()
+            self._send_json(200, {"result": ok, "message": msg})
+            return
+
+        if path == "/api/external_robot/mbot/get_map":
+            ok, res = external_bridge.mbot_get_map()
+            if ok:
+                self._send_json(200, {"result": True, "map": res})
+            else:
+                self._send_json(500, {"result": False, "error": str(res)})
+            return
+
+        if path == "/api/external_robot/arm/command":
+            action = payload.get("action", "")
+            data = payload.get("data")
+            ok, msg = external_bridge.arm_command(action, data)
+            self._send_json(200, {"result": ok, "message": msg})
+            return
 
         if path == "/api/call_service":
             service = payload.get("service")
@@ -466,6 +808,8 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
                 time.sleep(0.05)
 
             tcp_client.latest_robot_description = urdf_text
+            # Broadcast description update to all connected visualizer clients
+            tcp_client._broadcast({"op": "publish", "topic": "/robot_description", "msg": {"description": urdf_text}})
             self._send_json(200, {"result": st.get("accepted", False), "status": st, "version": version})
             return
 
@@ -616,20 +960,46 @@ class ViewerRequestHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    global tcp_client
+    global tcp_client, external_bridge
     parser = argparse.ArgumentParser(description="Project 3 3D Robot Viewer Server")
     parser.add_argument("--port", type=int, default=8080, help="Web server port (default: 8080)")
     parser.add_argument("--rosbridge-port", type=int, default=9095, help="C++ TCP rosbridge port (default: 9095)")
     parser.add_argument("--rosbridge-host", type=str, default="127.0.0.1", help="C++ TCP rosbridge host (default: 127.0.0.1)")
+    parser.add_argument("--mbot-host", type=str, default="", help="MBot Bridge host to connect on startup")
+    parser.add_argument("--mbot-port", type=int, default=5005, help="MBot Bridge port (default: 5005)")
+    parser.add_argument("--external-rosbridge-host", type=str, default="", help="External ROSBridge arm host to connect on startup")
+    parser.add_argument("--external-rosbridge-port", type=int, default=9090, help="External ROSBridge arm port (default: 9090)")
     parser.add_argument("--no-open", action="store_true", help="Do not automatically open web browser")
     args = parser.parse_args()
 
     tcp_client = TcpRosbridgeClient(host=args.rosbridge_host, port=args.rosbridge_port)
+    external_bridge = ExternalRobotBridge(local_client=tcp_client)
 
-    server = ThreadedHTTPServer(("127.0.0.1", args.port), ViewerRequestHandler)
+    # Optional auto-connect from command line
+    if args.mbot_host:
+        def auto_connect_mbot():
+            time.sleep(1.0)
+            external_bridge.connect("mbot", args.mbot_host, args.mbot_port)
+        threading.Thread(target=auto_connect_mbot, daemon=True).start()
+    elif args.external_rosbridge_host:
+        def auto_connect_arm():
+            time.sleep(1.0)
+            external_bridge.connect("rosbridge", args.external_rosbridge_host, args.external_rosbridge_port)
+        threading.Thread(target=auto_connect_arm, daemon=True).start()
+
+    try:
+        server = ThreadedHTTPServer(("127.0.0.1", args.port), ViewerRequestHandler)
+    except OSError as e:
+        if e.errno == 48 or "Address already in use" in str(e):
+            print(f"\n[Viewer Error] Port {args.port} is already in use by another process.")
+            print(f"[Viewer Hint] Free the port using 'lsof -ti :{args.port} | xargs kill -9' or pass '--port <ANOTHER_PORT>'.\n")
+            sys.exit(1)
+        raise
 
     def shutdown_handler(signum, frame):
         print("\n[Viewer] Shutting down...")
+        if external_bridge:
+            external_bridge.disconnect()
         tcp_client.running = False
         try:
             server.shutdown()
@@ -646,6 +1016,10 @@ def main():
     print(f" Portfolio:   http://127.0.0.1:{args.port}/portfolio/index.html")
     print(f" TCP Backend: {args.rosbridge_host}:{args.rosbridge_port} (raw TCP/JSON)")
     print(f" Protocol:    HTTP/1.1 + Server-Sent Events (NO WebSocket gateway)")
+    if args.mbot_host:
+        print(f" MBot Bridge: Auto-connecting to ws://{args.mbot_host}:{args.mbot_port}")
+    if args.external_rosbridge_host:
+        print(f" Ext ROSBridge: Auto-connecting to {args.external_rosbridge_host}:{args.external_rosbridge_port}")
     print("=================================================================")
 
     if not args.no_open:
@@ -658,6 +1032,8 @@ def main():
     try:
         server.serve_forever()
     finally:
+        if external_bridge:
+            external_bridge.disconnect()
         tcp_client.running = False
         server.server_close()
 

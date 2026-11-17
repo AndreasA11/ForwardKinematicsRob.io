@@ -56,6 +56,34 @@
   const speedSlider = document.getElementById('speedSlider');
   const speedValueLabel = document.getElementById('speedValueLabel');
 
+  // External Robot Gateway DOM Elements
+  const extProtocolSelect = document.getElementById('extProtocolSelect');
+  const extHostInput = document.getElementById('extHostInput');
+  const extPortInput = document.getElementById('extPortInput');
+  const btnToggleExtConnect = document.getElementById('btnToggleExtConnect');
+  const extConnDot = document.getElementById('extConnDot');
+  const extConnStatusText = document.getElementById('extConnStatusText');
+  const extActiveProtocolBadge = document.getElementById('extActiveProtocolBadge');
+  const mbotControlsDeck = document.getElementById('mbotControlsDeck');
+  const mbotPoseDisplay = document.getElementById('mbotPoseDisplay');
+  const mbotGoalX = document.getElementById('mbotGoalX');
+  const mbotGoalY = document.getElementById('mbotGoalY');
+  const mbotGoalTheta = document.getElementById('mbotGoalTheta');
+  const btnMbotSendGoal = document.getElementById('btnMbotSendGoal');
+  const btnPresetSquare = document.getElementById('btnPresetSquare');
+  const btnPresetFwdBack = document.getElementById('btnPresetFwdBack');
+  const btnPresetRotate = document.getElementById('btnPresetRotate');
+  const btnMbotEmergencyStop = document.getElementById('btnMbotEmergencyStop');
+  const btnMbotFetchMap = document.getElementById('btnMbotFetchMap');
+  const rx200ControlsDeck = document.getElementById('rx200ControlsDeck');
+  const rx200ArmStatus = document.getElementById('rx200ArmStatus');
+  const btnArmHome = document.getElementById('btnArmHome');
+  const btnArmSleep = document.getElementById('btnArmSleep');
+  const btnArmRelease = document.getElementById('btnArmRelease');
+  const btnArmGrasp = document.getElementById('btnArmGrasp');
+  const btnArmChessPickAndPlace = document.getElementById('btnArmChessPickAndPlace');
+  let externalConnected = false;
+
   // --- Color Palette for Fallback ---
   const DEFAULT_COLORS = [
     0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6,
@@ -63,6 +91,37 @@
   ];
 
   function getFallbackColor(name) {
+    const n = (name || '').toLowerCase();
+    if (n.includes('finger') || n.includes('jaw') || n === 'gripper_left_joint' || n === 'gripper_right_joint') {
+      return 0xf59e0b; // Radiant amber gold for gripper fingers!
+    }
+    if (n.includes('upper_arm') || n.includes('forearm')) {
+      return 0x2563eb; // Royal electric cobalt blue!
+    }
+    if (n.includes('shoulder')) {
+      return 0x3b82f6; // High-tech accent blue!
+    }
+    if (n.includes('wrist')) {
+      return 0x1e293b; // Deep metallic slate for wrist!
+    }
+    if (n.includes('gripper') || n.includes('palm')) {
+      return 0x334155; // Dark titanium charcoal!
+    }
+    if (n.includes('base_link') || n.includes('pedestal')) {
+      return 0x1f242d; // Matte pedestal slate!
+    }
+    if (n.includes('table')) {
+      return 0x181c24; // Base table slate!
+    }
+    if (n.includes('board') || n.includes('chess')) {
+      return 0x5c3a21; // Rich polished mahogany/walnut!
+    }
+    if (n.includes('white') || n.includes('pawn_e2') || n.includes('pawn_d2') || n.includes('king_white') || n.includes('knight_white')) {
+      return 0xf4efe2; // Ivory porcelain white piece!
+    }
+    if (n.includes('black') || n.includes('pawn_e7') || n.includes('king_black')) {
+      return 0x1e2026; // Ebony obsidian black piece!
+    }
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -115,8 +174,8 @@
     gridHelper.position.z = 0;
     scene.add(gridHelper);
 
-    // World Axes Helper (X = Red, Y = Green, Z = Blue)
-    const axesHelper = new THREE.AxesHelper(0.4);
+    // World Axes Helper (X = Red, Y = Green, Z = Blue) - Subtle 15cm triad
+    const axesHelper = new THREE.AxesHelper(0.15);
     axesHelper.position.set(0, 0, 0.001);
     scene.add(axesHelper);
 
@@ -169,6 +228,30 @@
     }
   }
 
+  // Universal DOM helpers safe for text/xml and text/html DOMs (no :scope CSS selector dependency)
+  function getDirectChild(parent, tagName) {
+    if (!parent || !parent.children) return null;
+    const target = tagName.toLowerCase();
+    for (let i = 0; i < parent.children.length; i++) {
+      if (parent.children[i].tagName && parent.children[i].tagName.toLowerCase() === target) {
+        return parent.children[i];
+      }
+    }
+    return null;
+  }
+
+  function getDirectChildren(parent, tagName) {
+    const list = [];
+    if (!parent || !parent.children) return list;
+    const target = tagName.toLowerCase();
+    for (let i = 0; i < parent.children.length; i++) {
+      if (parent.children[i].tagName && parent.children[i].tagName.toLowerCase() === target) {
+        list.push(parent.children[i]);
+      }
+    }
+    return list;
+  }
+
   // --- URDF Parsing & Visual Geometry Construction ---
   function parseNumbers(str, count) {
     if (!str) return Array(count).fill(0);
@@ -182,63 +265,62 @@
   function parseUrdf(urdfXml) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(urdfXml, "text/xml");
-    const robotEl = doc.querySelector("robot");
-    if (!robotEl) return new Map();
+    const robotEl = getDirectChild(doc, "robot") || doc.querySelector("robot");
+    if (!robotEl) return { linkDefs: new Map(), defaultTransforms: new Map(), rootLink: "" };
 
     // Map top-level named materials
     const topMaterials = new Map();
-    for (const matEl of robotEl.children) {
-      if (matEl.tagName.toLowerCase() !== "material") continue;
+    const matElements = getDirectChildren(robotEl, "material");
+    for (const matEl of matElements) {
       const matName = matEl.getAttribute("name");
-      const colorEl = matEl.querySelector("color");
+      const colorEl = getDirectChild(matEl, "color");
       if (matName && colorEl && colorEl.getAttribute("rgba")) {
         topMaterials.set(matName, parseNumbers(colorEl.getAttribute("rgba"), 4));
       }
     }
 
     const linkDefs = new Map();
-
-    // Iterate over direct child links
-    for (const linkEl of robotEl.children) {
-      if (linkEl.tagName.toLowerCase() !== "link") continue;
+    const linkElements = getDirectChildren(robotEl, "link");
+    for (const linkEl of linkElements) {
       const linkName = linkEl.getAttribute("name");
       if (!linkName) continue;
 
       let visualData = null;
-      const visEl = linkEl.querySelector(":scope > visual");
+      const visEl = getDirectChild(linkEl, "visual");
       if (visEl) {
         // Origin
-        const origEl = visEl.querySelector(":scope > origin");
+        const origEl = getDirectChild(visEl, "origin");
         const xyz = origEl ? parseNumbers(origEl.getAttribute("xyz"), 3) : [0, 0, 0];
         const rpy = origEl ? parseNumbers(origEl.getAttribute("rpy"), 3) : [0, 0, 0];
 
         // Geometry
         let geomData = null;
-        const geomEl = visEl.querySelector(":scope > geometry");
-        if (geomEl && geomEl.firstElementChild) {
-          const childTag = geomEl.firstElementChild.tagName.toLowerCase();
+        const geomEl = getDirectChild(visEl, "geometry");
+        if (geomEl && geomEl.children.length > 0) {
+          const childEl = geomEl.children[0];
+          const childTag = childEl.tagName.toLowerCase();
           if (childTag === "box") {
-            const size = parseNumbers(geomEl.firstElementChild.getAttribute("size"), 3);
+            const size = parseNumbers(childEl.getAttribute("size"), 3);
             geomData = { type: "box", size };
           } else if (childTag === "cylinder") {
-            const radius = parseFloat(geomEl.firstElementChild.getAttribute("radius")) || 0.05;
-            const length = parseFloat(geomEl.firstElementChild.getAttribute("length")) || 0.1;
+            const radius = parseFloat(childEl.getAttribute("radius")) || 0.05;
+            const length = parseFloat(childEl.getAttribute("length")) || 0.1;
             geomData = { type: "cylinder", radius, length };
           } else if (childTag === "sphere") {
-            const radius = parseFloat(geomEl.firstElementChild.getAttribute("radius")) || 0.05;
+            const radius = parseFloat(childEl.getAttribute("radius")) || 0.05;
             geomData = { type: "sphere", radius };
           } else if (childTag === "mesh") {
-            const filename = geomEl.firstElementChild.getAttribute("filename") || "";
-            const scale = parseNumbers(geomEl.firstElementChild.getAttribute("scale") || "1 1 1", 3);
+            const filename = childEl.getAttribute("filename") || "";
+            const scale = parseNumbers(childEl.getAttribute("scale") || "1 1 1", 3);
             geomData = { type: "mesh", filename, scale };
           }
         }
 
         // Material color (local or top-level reference)
         let colorRgba = null;
-        const matEl = visEl.querySelector(":scope > material");
+        const matEl = getDirectChild(visEl, "material");
         if (matEl) {
-          const colorEl = matEl.querySelector("color");
+          const colorEl = getDirectChild(matEl, "color");
           if (colorEl && colorEl.getAttribute("rgba")) {
             colorRgba = parseNumbers(colorEl.getAttribute("rgba"), 4);
           } else if (matEl.getAttribute("name") && topMaterials.has(matEl.getAttribute("name"))) {
@@ -252,20 +334,81 @@
       linkDefs.set(linkName, { name: linkName, visual: visualData });
     }
 
-    return linkDefs;
+    // Parse joints to compute zero-joint default forward kinematics
+    const joints = [];
+    const childLinks = new Set();
+    const jointElements = getDirectChildren(robotEl, "joint");
+    for (const jEl of jointElements) {
+      const jName = jEl.getAttribute("name") || "";
+      const jType = jEl.getAttribute("type") || "fixed";
+      const parentEl = getDirectChild(jEl, "parent");
+      const childEl = getDirectChild(jEl, "child");
+      const origEl = getDirectChild(jEl, "origin");
+
+      const parentLink = parentEl ? parentEl.getAttribute("link") : null;
+      const childLink = childEl ? childEl.getAttribute("link") : null;
+      if (!parentLink || !childLink) continue;
+
+      const xyz = origEl ? parseNumbers(origEl.getAttribute("xyz"), 3) : [0, 0, 0];
+      const rpy = origEl ? parseNumbers(origEl.getAttribute("rpy"), 3) : [0, 0, 0];
+
+      joints.push({ name: jName, type: jType, parent: parentLink, child: childLink, xyz, rpy });
+      childLinks.add(childLink);
+    }
+
+    // Determine root links (links that are never a child of any joint)
+    let rootLinks = [];
+    for (const name of linkDefs.keys()) {
+      if (!childLinks.has(name)) {
+        rootLinks.push(name);
+      }
+    }
+    if (rootLinks.length === 0 && linkDefs.size > 0) {
+      rootLinks.push(linkDefs.keys().next().value);
+    }
+
+    // Build adjacency: parent -> list of child joints
+    const adj = new Map();
+    for (const j of joints) {
+      if (!adj.has(j.parent)) adj.set(j.parent, []);
+      adj.get(j.parent).push(j);
+    }
+
+    // Compute default world transform for each link (BFS from root with zero joint displacement)
+    const defaultTransforms = new Map();
+    for (const root of rootLinks) {
+      const queue = [{ link: root, matrix: new THREE.Matrix4().identity() }];
+      defaultTransforms.set(root, new THREE.Matrix4().identity());
+
+      while (queue.length > 0) {
+        const { link: currLink, matrix: currMat } = queue.shift();
+        const children = adj.get(currLink) || [];
+        for (const edge of children) {
+          const relMat = new THREE.Matrix4();
+          const pos = new THREE.Vector3(edge.xyz[0], edge.xyz[1], edge.xyz[2]);
+          const rot = new THREE.Euler(edge.rpy[0], edge.rpy[1], edge.rpy[2], 'ZYX');
+          const quat = new THREE.Quaternion().setFromEuler(rot);
+          relMat.compose(pos, quat, new THREE.Vector3(1, 1, 1));
+
+          const childMat = new THREE.Matrix4().multiplyMatrices(currMat, relMat);
+          defaultTransforms.set(edge.child, childMat);
+          queue.push({ link: edge.child, matrix: childMat });
+        }
+      }
+    }
+
+    return { linkDefs, defaultTransforms, rootLink: rootLinks[0] || "" };
   }
 
   function createVisualMesh(linkName, visualData) {
     if (!visualData || !visualData.geom) {
-      // Invisible frame helper
-      const group = new THREE.Group();
-      const axis = new THREE.AxesHelper(0.08);
-      group.add(axis);
-      return group;
+      // Clean invisible container for virtual frames
+      return new THREE.Group();
     }
 
     let geometry = null;
     const g = visualData.geom;
+    const n = linkName.toLowerCase();
 
     if (g.type === "box") {
       geometry = new THREE.BoxGeometry(g.size[0], g.size[1], g.size[2]);
@@ -276,9 +419,49 @@
     } else if (g.type === "sphere") {
       geometry = new THREE.SphereGeometry(g.radius, 32, 16);
     } else if (g.type === "mesh") {
-      // Mesh fallback proxy: sleek rounded box + coordinate triad
-      const fallbackSize = [0.12, 0.12, 0.12];
-      geometry = new THREE.BoxGeometry(fallbackSize[0], fallbackSize[1], fallbackSize[2]);
+      const fn = (g.filename || "").toLowerCase();
+      if ((fn.includes('omni') || fn.includes('mbot')) && (n.includes('base_link') || n.includes('chassis'))) {
+        geometry = new THREE.CylinderGeometry(0.10, 0.10, 0.08, 32);
+        geometry.rotateX(Math.PI / 2);
+      } else if (n.includes('wheel')) {
+        geometry = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 24);
+        geometry.rotateX(Math.PI / 2);
+      } else if (n.includes('lidar')) {
+        geometry = new THREE.CylinderGeometry(0.035, 0.035, 0.04, 24);
+        geometry.rotateX(Math.PI / 2);
+      } else if (n.includes('base_link') || fn.includes('base')) {
+        geometry = new THREE.CylinderGeometry(0.065, 0.070, 0.035, 32);
+        geometry.rotateX(Math.PI / 2);
+      } else if (n.includes('shoulder') || fn.includes('shoulder')) {
+        geometry = new THREE.CylinderGeometry(0.038, 0.042, 0.045, 24);
+        geometry.rotateX(Math.PI / 2);
+      } else if (n.includes('upper_arm') || fn.includes('upper')) {
+        geometry = new THREE.CylinderGeometry(0.024, 0.026, 0.20, 24);
+        geometry.rotateX(Math.PI / 2);
+        geometry.rotateY(0.245);
+        if (visualData.xyz[2] === 0) geometry.translate(0.025, 0, 0.10);
+      } else if (n.includes('forearm') || fn.includes('forearm')) {
+        geometry = new THREE.CylinderGeometry(0.020, 0.022, 0.19, 24);
+        geometry.rotateZ(Math.PI / 2);
+        if (visualData.xyz[0] === 0) geometry.translate(0.10, 0, 0);
+      } else if (n.includes('wrist') || fn.includes('wrist')) {
+        geometry = new THREE.CylinderGeometry(0.016, 0.018, 0.055, 20);
+        geometry.rotateZ(Math.PI / 2);
+        if (visualData.xyz[0] === 0) geometry.translate(0.032, 0, 0);
+      } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('prop') && !n.includes('bar')) {
+        geometry = new THREE.BoxGeometry(0.035, 0.052, 0.026);
+        if (visualData.xyz[0] === 0) geometry.translate(0.018, 0, 0);
+      } else if (n.includes('finger')) {
+        geometry = new THREE.BoxGeometry(0.032, 0.008, 0.016);
+        if (visualData.xyz[0] === 0) {
+          const yOff = n.includes('left') ? 0.005 : -0.005;
+          geometry.translate(0.018, yOff, 0);
+        }
+      } else if (n.includes('prop') || n.includes('bar') || n.includes('ee_') || n.includes('carrier')) {
+        return new THREE.Group();
+      } else {
+        geometry = new THREE.CylinderGeometry(0.014, 0.014, 0.05, 16);
+      }
     }
 
     // Material
@@ -293,7 +476,7 @@
     const material = new THREE.MeshStandardMaterial({
       color: matColor,
       roughness: 0.35,
-      metalness: 0.2,
+      metalness: (n.includes('finger') || n.includes('wrist')) ? 0.6 : 0.25,
       opacity: opacity,
       transparent: opacity < 1.0
     });
@@ -328,26 +511,59 @@
     mesh.position.set(ox, oy, oz);
 
     // Fixed-axis roll-pitch-yaw: R = Rz(yaw) * Ry(pitch) * Rx(roll)
-    // In Three.js, Euler with 'ZYX' applies Rx, then Ry, then Rz!
     const [roll, pitch, yaw] = visualData.rpy;
     mesh.rotation.setFromEuler(new THREE.Euler(roll, pitch, yaw, 'ZYX'));
 
     const group = new THREE.Group();
     group.add(mesh);
 
-    // Articulated Arm Spherical Ball Joints (balls at each joint pivot)
-    if (linkName === 'arm_base_link' || linkName.includes('shoulder') ||
-        linkName.includes('upper_arm') || linkName.includes('forearm') ||
-        linkName.includes('wrist')) {
-      const ballRadius = linkName === 'arm_base_link' ? 0.048 :
-                         linkName.includes('shoulder') ? 0.040 :
-                         linkName.includes('upper') ? 0.034 :
-                         linkName.includes('forearm') ? 0.028 : 0.022;
+    // Asynchronously load GLTF / GLB model if available
+    if (g && g.type === "mesh" && typeof THREE.GLTFLoader !== "undefined") {
+      let meshUrl = g.filename || "";
+      if (meshUrl.startsWith("package://mbot/")) {
+        meshUrl = meshUrl.replace("package://mbot/", "robots/mbot/");
+      } else if (meshUrl.startsWith("meshes/")) {
+        meshUrl = "robots/mbot/" + meshUrl;
+      }
+      if (!meshUrl.startsWith("http") && !meshUrl.startsWith("/")) {
+        meshUrl = "/" + meshUrl;
+      }
+      if (meshUrl.endsWith(".glb") || meshUrl.endsWith(".gltf")) {
+        try {
+          const loader = new THREE.GLTFLoader();
+          loader.load(meshUrl, (gltf) => {
+            const model = gltf.scene;
+            if (g.scale && g.scale.length === 3) {
+              model.scale.set(g.scale[0], g.scale[1], g.scale[2]);
+            }
+            model.position.set(ox, oy, oz);
+            model.rotation.setFromEuler(new THREE.Euler(roll, pitch, yaw, 'ZYX'));
+            model.traverse((child) => {
+              if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+            group.remove(mesh);
+            group.add(model);
+          }, undefined, () => {});
+        } catch (e) {}
+      }
+    }
+
+    // Articulated Arm Spherical Ball Joints (balls at each joint pivot matching Portfolio Video)
+    if (n.includes('base_link') || n.includes('shoulder') ||
+        n.includes('upper_arm') || n.includes('forearm') ||
+        n.includes('wrist')) {
+      const ballRadius = n.includes('base_link') ? 0.045 :
+                         n.includes('shoulder') ? 0.038 :
+                         n.includes('upper') ? 0.030 :
+                         n.includes('forearm') ? 0.025 : 0.020;
       const ballGeom = new THREE.SphereGeometry(ballRadius, 24, 16);
       const ballMat = new THREE.MeshStandardMaterial({
         color: 0xd8dde8,
-        metalness: 0.85,
-        roughness: 0.2
+        metalness: 0.90,
+        roughness: 0.15
       });
       const ballMesh = new THREE.Mesh(ballGeom, ballMat);
       ballMesh.castShadow = true;
@@ -374,8 +590,8 @@
       }
     }
 
-    // Add axis indicator to key links only
-    if (linkName === 'arm_base_link' || linkName === 'table_base' || linkName === 'gripper_base') {
+    // Add subtle axis indicator to root base only
+    if (linkName === 'arm_base_link' || linkName === 'table_base' || linkName === 'rx200/base_link') {
       const axes = new THREE.AxesHelper(0.06);
       group.add(axes);
     }
@@ -384,8 +600,11 @@
   }
 
   function rebuildRobotScene(urdfXml) {
+    if (!urdfXml) return;
     activeRobotDescription = urdfXml;
-    const linkDefs = parseUrdf(urdfXml);
+    const parsed = parseUrdf(urdfXml);
+    const linkDefs = parsed.linkDefs || new Map();
+    const defaultTransforms = parsed.defaultTransforms || new Map();
 
     // 1. Purge stale link objects not in new URDF
     for (const [name, obj] of linkObjects.entries()) {
@@ -416,6 +635,26 @@
 
       const visualNode = createVisualMesh(name, def.visual);
       linkGroup.add(visualNode);
+
+      // Pre-initialize link transform using zero-joint default forward kinematics
+      // Ensures robot arm, chessboard, table, and pieces are 100% visible immediately upon load!
+      const defMat = defaultTransforms.get(name) || new THREE.Matrix4().identity();
+      if (!linkGroup.targetPos) {
+        linkGroup.targetPos = new THREE.Vector3();
+        linkGroup.targetQuat = new THREE.Quaternion();
+        linkGroup.targetScale = new THREE.Vector3(1, 1, 1);
+        linkGroup.currentPos = new THREE.Vector3();
+        linkGroup.currentQuat = new THREE.Quaternion();
+        linkGroup.currentScale = new THREE.Vector3(1, 1, 1);
+      }
+      defMat.decompose(linkGroup.targetPos, linkGroup.targetQuat, linkGroup.targetScale);
+      linkGroup.currentPos.copy(linkGroup.targetPos);
+      linkGroup.currentQuat.copy(linkGroup.targetQuat);
+      linkGroup.currentScale.copy(linkGroup.targetScale);
+      linkGroup.matrix.copy(defMat);
+      linkGroup.matrixWorldNeedsUpdate = true;
+      linkGroup.hasInitialPose = true;
+      linkGroup.hasLivePose = false;
     }
 
     updateLinkCountBadge();
@@ -449,18 +688,9 @@
 
       let linkObj = linkObjects.get(linkName);
       if (!linkObj) {
-        // If link was not yet created from URDF, create default placeholder
         linkObj = new THREE.Group();
         linkObj.name = linkName;
         linkObj.matrixAutoUpdate = false;
-        const fallbackGeom = new THREE.BoxGeometry(0.08, 0.08, 0.08);
-        const fallbackMat = new THREE.MeshStandardMaterial({
-          color: getFallbackColor(linkName),
-          roughness: 0.4
-        });
-        const m = new THREE.Mesh(fallbackGeom, fallbackMat);
-        linkObj.add(m);
-        linkObj.add(new THREE.AxesHelper(0.08));
         robotRootGroup.add(linkObj);
         linkObjects.set(linkName, linkObj);
         updateLinkCountBadge();
@@ -474,20 +704,22 @@
         linkObj.currentQuat = new THREE.Quaternion();
         linkObj.currentScale = new THREE.Vector3(1, 1, 1);
         linkObj.hasInitialPose = false;
+        linkObj.hasLivePose = false;
       }
 
       // Decompose target matrix into position, quaternion, scale
       _tmpMatrix.fromArray(matrixArr);
       _tmpMatrix.decompose(linkObj.targetPos, linkObj.targetQuat, linkObj.targetScale);
 
-      // On first pose or instant reset, snap directly
-      if (!linkObj.hasInitialPose) {
+      // On first live pose or major teleport, snap directly to avoid lerping across scene
+      if (!linkObj.hasLivePose) {
         linkObj.currentPos.copy(linkObj.targetPos);
         linkObj.currentQuat.copy(linkObj.targetQuat);
         linkObj.currentScale.copy(linkObj.targetScale);
         linkObj.matrix.fromArray(matrixArr);
         linkObj.matrixWorldNeedsUpdate = true;
         linkObj.hasInitialPose = true;
+        linkObj.hasLivePose = true;
       }
 
       // Update Inspector if this link is selected
@@ -597,10 +829,16 @@
         if (msg.op === "publish") {
           if (msg.topic === "/xform_world") {
             updateWorldTransforms(msg.msg.transforms);
+          } else if (msg.topic === "/robot_description") {
+            if (msg.msg && msg.msg.description) {
+              rebuildRobotScene(msg.msg.description);
+            }
           } else if (msg.topic === "/fsm/status") {
             updateFsmStatus(msg.msg);
           } else if (msg.topic === "/joint_states") {
             updateJointStates(msg.msg);
+          } else if (msg.topic === "/mbot/pose") {
+            updateMbotPoseDisplay(msg.data);
           }
         } else if (msg.op === "connected") {
           if (msg.backend_connected) {
@@ -646,7 +884,8 @@
           const opt = document.createElement('option');
           opt.value = r.path;
           opt.textContent = r.name;
-          if (r.path.includes('chess_arm')) defaultIdx = i;
+          if (r.path.includes('rx200_chess')) defaultIdx = i;
+          else if (r.path.includes('rx200') && !robData.robots[defaultIdx]?.path.includes('rx200_chess')) defaultIdx = i;
           robotSelect.appendChild(opt);
         }
         if (robotSelect.options.length > defaultIdx) {
@@ -665,7 +904,8 @@
           const opt = document.createElement('option');
           opt.value = f.identifier;
           opt.textContent = f.identifier;
-          if (f.identifier.includes('chess')) defaultFsmIdx = i;
+          if (f.identifier.includes('rx200_chess')) defaultFsmIdx = i;
+          else if (f.identifier.includes('chess') && !fsmData.fsm_files[defaultFsmIdx]?.identifier.includes('rx200_chess')) defaultFsmIdx = i;
           fsmSelect.appendChild(opt);
         }
         if (fsmSelect.options.length > defaultFsmIdx) {
@@ -911,6 +1151,308 @@
         }
       }
     });
+
+    // --- External Robot Gateway Event Listeners ---
+    if (extProtocolSelect) {
+      extProtocolSelect.addEventListener('change', () => {
+        const mode = extProtocolSelect.value;
+        if (mode === 'mbot') {
+          if (extPortInput) extPortInput.value = '5005';
+          if (mbotControlsDeck) mbotControlsDeck.style.display = 'flex';
+          if (rx200ControlsDeck) rx200ControlsDeck.style.display = 'none';
+          if (extActiveProtocolBadge) extActiveProtocolBadge.textContent = 'MBot Bridge';
+        } else if (mode === 'rosbridge') {
+          if (extPortInput) extPortInput.value = '9090';
+          if (mbotControlsDeck) mbotControlsDeck.style.display = 'none';
+          if (rx200ControlsDeck) rx200ControlsDeck.style.display = 'flex';
+          if (extActiveProtocolBadge) extActiveProtocolBadge.textContent = 'ROSBridge';
+        } else {
+          if (mbotControlsDeck) mbotControlsDeck.style.display = 'none';
+          if (rx200ControlsDeck) rx200ControlsDeck.style.display = 'none';
+          if (extActiveProtocolBadge) extActiveProtocolBadge.textContent = 'Offline';
+        }
+      });
+    }
+
+    if (btnToggleExtConnect) {
+      btnToggleExtConnect.addEventListener('click', async () => {
+        if (externalConnected) {
+          // Disconnect
+          try {
+            const res = await fetch('/api/external_robot/disconnect', { method: 'POST' });
+            const data = await res.json();
+            updateExternalRobotUI(data.status);
+          } catch (err) {
+            console.error("Disconnect error:", err);
+          }
+        } else {
+          // Connect
+          const mode = extProtocolSelect ? extProtocolSelect.value : 'mbot';
+          const host = extHostInput ? extHostInput.value.trim() || '127.0.0.1' : '127.0.0.1';
+          const port = extPortInput ? parseInt(extPortInput.value, 10) || (mode === 'mbot' ? 5005 : 9090) : (mode === 'mbot' ? 5005 : 9090);
+
+          if (extConnDot) extConnDot.className = 'ext-status-dot connecting';
+          if (extConnStatusText) extConnStatusText.textContent = `Connecting to ${mode} at ${host}:${port}...`;
+
+          try {
+            const res = await fetch('/api/external_robot/connect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode, host, port }),
+            });
+            const data = await res.json();
+            updateExternalRobotUI(data.status);
+
+            if (data.result) {
+              // Automatically load corresponding robot model if available
+              if (mode === 'mbot' && robotSelect) {
+                for (let i = 0; i < robotSelect.options.length; i++) {
+                  if (robotSelect.options[i].value.includes('mbot')) {
+                    robotSelect.selectedIndex = i;
+                    loadSelectedRobot();
+                    break;
+                  }
+                }
+              } else if (mode === 'rosbridge' && robotSelect) {
+                for (let i = 0; i < robotSelect.options.length; i++) {
+                  if (robotSelect.options[i].value.includes('rx200')) {
+                    robotSelect.selectedIndex = i;
+                    loadSelectedRobot();
+                    break;
+                  }
+                }
+              }
+            } else {
+              alert(data.message || "Failed to connect to external robot");
+            }
+          } catch (err) {
+            console.error("Connect error:", err);
+            if (extConnDot) extConnDot.className = 'ext-status-dot error';
+            if (extConnStatusText) extConnStatusText.textContent = `Connection error: ${err.message}`;
+          }
+        }
+      });
+    }
+
+    // MBot Navigation Actions
+    if (btnMbotSendGoal) {
+      btnMbotSendGoal.addEventListener('click', async () => {
+        const gx = parseFloat(mbotGoalX ? mbotGoalX.value : 0) || 0;
+        const gy = parseFloat(mbotGoalY ? mbotGoalY.value : 0) || 0;
+        const gth = parseFloat(mbotGoalTheta ? mbotGoalTheta.value : 0) || 0;
+        try {
+          const res = await fetch('/api/external_robot/mbot/navigate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ waypoints: [{ x: gx, y: gy, theta: gth }] }),
+          });
+          const data = await res.json();
+          if (data.result) {
+            console.log(`[MBot] Sent goal waypoint: (${gx}, ${gy}, ${gth})`);
+          } else {
+            alert(data.message || "Failed to send navigation path");
+          }
+        } catch (err) {
+          alert(`Navigation request error: ${err.message}`);
+        }
+      });
+    }
+
+    if (btnPresetSquare) {
+      btnPresetSquare.addEventListener('click', async () => {
+        const squarePath = [
+          { x: 1.0, y: 0.0, theta: 0.0 },
+          { x: 1.0, y: 1.0, theta: 1.5708 },
+          { x: 0.0, y: 1.0, theta: 3.1416 },
+          { x: 0.0, y: 0.0, theta: 0.0 },
+        ];
+        await fetch('/api/external_robot/mbot/navigate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ waypoints: squarePath }),
+        });
+      });
+    }
+
+    if (btnPresetFwdBack) {
+      btnPresetFwdBack.addEventListener('click', async () => {
+        const path = [
+          { x: 1.0, y: 0.0, theta: 0.0 },
+          { x: 0.0, y: 0.0, theta: 3.1416 },
+        ];
+        await fetch('/api/external_robot/mbot/navigate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ waypoints: path }),
+        });
+      });
+    }
+
+    if (btnPresetRotate) {
+      btnPresetRotate.addEventListener('click', async () => {
+        const path = [
+          { x: 0.0, y: 0.0, theta: 1.5708 },
+          { x: 0.0, y: 0.0, theta: 3.1416 },
+          { x: 0.0, y: 0.0, theta: -1.5708 },
+          { x: 0.0, y: 0.0, theta: 0.0 },
+        ];
+        await fetch('/api/external_robot/mbot/navigate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ waypoints: path }),
+        });
+      });
+    }
+
+    if (btnMbotEmergencyStop) {
+      btnMbotEmergencyStop.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/external_robot/mbot/stop', { method: 'POST' });
+          const data = await res.json();
+          console.log("[MBot] Emergency stop issued:", data);
+        } catch (err) {
+          alert(`Stop error: ${err.message}`);
+        }
+      });
+    }
+
+    if (btnMbotFetchMap) {
+      btnMbotFetchMap.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/external_robot/mbot/get_map', { method: 'POST' });
+          const data = await res.json();
+          if (data.result && data.map) {
+            const m = data.map;
+            alert(`Map received: ${m.width}x${m.height} cells @ ${m.meters_per_cell}m/cell, Origin: (${m.origin_x}, ${m.origin_y})`);
+          } else {
+            alert(data.error || "No map data available from SLAM_MAP");
+          }
+        } catch (err) {
+          alert(`Map error: ${err.message}`);
+        }
+      });
+    }
+
+    // Trossen RX200 Arm Actions
+    function sendArmCommand(action) {
+      fetch('/api/external_robot/arm/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      }).then(r => r.json()).then(data => {
+        console.log(`[RX200 Arm] Command ${action}:`, data);
+      }).catch(err => alert(`Arm command error: ${err.message}`));
+    }
+
+    if (btnArmHome) btnArmHome.addEventListener('click', () => sendArmCommand('home'));
+    if (btnArmSleep) btnArmSleep.addEventListener('click', () => sendArmCommand('sleep'));
+    if (btnArmRelease) btnArmRelease.addEventListener('click', () => sendArmCommand('release'));
+    if (btnArmGrasp) btnArmGrasp.addEventListener('click', () => sendArmCommand('grasp'));
+    if (btnArmChessPickAndPlace) {
+      btnArmChessPickAndPlace.addEventListener('click', () => {
+        if (robotSelect) {
+          for (let i = 0; i < robotSelect.options.length; i++) {
+            if (robotSelect.options[i].value.includes('rx200_chess') || robotSelect.options[i].value.includes('rx200')) {
+              if (robotSelect.selectedIndex !== i) {
+                robotSelect.selectedIndex = i;
+                loadSelectedRobot();
+              }
+              break;
+            }
+          }
+        }
+        sendArmCommand('chess_pick_and_place');
+      });
+    }
+
+    // Status polling
+    setInterval(pollExternalRobotStatus, 1500);
+  }
+
+  function updateMbotPoseDisplay(pose) {
+    if (!pose || !mbotPoseDisplay) return;
+    const x = typeof pose.x === 'number' ? pose.x : 0;
+    const y = typeof pose.y === 'number' ? pose.y : 0;
+    const th = typeof pose.theta === 'number' ? pose.theta : 0;
+    const deg = (th * 180 / Math.PI).toFixed(1);
+    mbotPoseDisplay.textContent = `X: ${x.toFixed(3)} m | Y: ${y.toFixed(3)} m | θ: ${deg}°`;
+  }
+
+  function updateExternalRobotUI(status) {
+    if (!status) return;
+    externalConnected = Boolean(status.connected);
+
+    if (extConnDot) {
+      if (status.status === 'connected') {
+        extConnDot.className = 'ext-status-dot connected';
+      } else if (status.status === 'connecting') {
+        extConnDot.className = 'ext-status-dot connecting';
+      } else if (status.status === 'error') {
+        extConnDot.className = 'ext-status-dot error';
+      } else {
+        extConnDot.className = 'ext-status-dot';
+      }
+    }
+
+    if (extConnStatusText) {
+      if (status.status === 'connected') {
+        extConnStatusText.textContent = `Connected (${status.mode.toUpperCase()} @ ${status.host}:${status.port})`;
+        extConnStatusText.style.color = 'var(--accent-green)';
+      } else if (status.status === 'connecting') {
+        extConnStatusText.textContent = `Connecting to ${status.host}:${status.port}...`;
+        extConnStatusText.style.color = 'var(--accent-orange)';
+      } else if (status.status === 'error') {
+        extConnStatusText.textContent = status.last_error || 'Connection Failed';
+        extConnStatusText.style.color = 'var(--accent-red)';
+      } else {
+        extConnStatusText.textContent = 'Not Connected';
+        extConnStatusText.style.color = 'var(--text-muted)';
+      }
+    }
+
+    if (btnToggleExtConnect) {
+      if (externalConnected) {
+        btnToggleExtConnect.textContent = '🔌 Disconnect from Robot';
+        btnToggleExtConnect.className = 'btn btn-danger';
+      } else {
+        btnToggleExtConnect.textContent = '⚡ Connect to External Robot';
+        btnToggleExtConnect.className = 'btn btn-primary';
+      }
+    }
+
+    if (status.mbot_pose) {
+      updateMbotPoseDisplay(status.mbot_pose);
+    }
+
+    if (status.mode === 'rosbridge' && status.connected) {
+      if (rx200ArmStatus) {
+        const j = status.arm_joints || {};
+        const keys = Object.keys(j);
+        if (keys.length > 0) {
+          const summary = keys.map(k => `${k}: ${Number(j[k]).toFixed(2)}`).join(' | ');
+          rx200ArmStatus.textContent = `Streaming (${keys.length} joints): ${summary}`;
+          rx200ArmStatus.style.color = 'var(--accent-green)';
+        } else {
+          rx200ArmStatus.textContent = 'Connected. Waiting for /joint_states telemetry...';
+          rx200ArmStatus.style.color = 'var(--accent-orange)';
+        }
+      }
+    } else if (status.mode === 'rosbridge' && !status.connected) {
+      if (rx200ArmStatus && status.status === 'error') {
+        rx200ArmStatus.textContent = status.last_error || 'Connection failed';
+        rx200ArmStatus.style.color = 'var(--accent-red)';
+      }
+    }
+  }
+
+  async function pollExternalRobotStatus() {
+    try {
+      const res = await fetch('/api/external_robot/status');
+      if (res.ok) {
+        const data = await res.json();
+        updateExternalRobotUI(data);
+      }
+    } catch (e) {}
   }
 
   function checkUrlParams() {
@@ -978,11 +1520,17 @@
   window.captureChoreographySequence = captureChoreographySequence;
 
   // --- Bootstrap ---
-  window.addEventListener('DOMContentLoaded', () => {
+  function bootstrap() {
     initThree();
     attachEvents();
     fetchStatusAndRobot();
     initSse();
     checkUrlParams();
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
+  }
 })();

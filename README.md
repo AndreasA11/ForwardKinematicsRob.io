@@ -159,6 +159,20 @@ The project includes an interactive browser-based 3D digital twin:
 ```
 .
 ├── Makefile                      # Build automation & test targets
+├── launch_arm.bash               # Trossen RX200 arm launch script
+├── launch_mbot_docker.bash       # MBot Omni navigation & Docker launch script
+├── bridges/                      # Real-world robot bridges & protocol clients
+│   ├── mbot_client.py            # MBot Bridge WebSocket protocol client
+│   ├── rosbridge_arm_client.py   # ROSBridge client for Trossen RX200 arm
+│   ├── mbot_websocket_spec.md    # MBot Bridge wire protocol specification
+│   └── omni.glb                  # 3D GLTF asset for MBot Omni
+├── robots/
+│   ├── mbot/
+│   │   ├── mbot.urdf             # MBot Omni kinematic robot model
+│   │   └── meshes/
+│   │       └── omni.glb          # MBot Omni 3D visual geometry
+│   └── rx200/
+│       └── rx200.urdf            # Trossen RX200 arm kinematic robot model
 ├── include/
 │   ├── finite_state_machine.hpp  # FSM motion coordinator
 │   ├── forward_kinematics.hpp    # Recursive kinematic tree engine
@@ -187,15 +201,21 @@ The project includes an interactive browser-based 3D digital twin:
 │   └── arm_wave.json             # Diagnostic oscillatory motion
 ├── urdf-files/
 │   ├── chess_arm.urdf            # 7-DOF articulated arm & chessboard model
+│   ├── mbot.urdf                 # MBot Omni 3-wheel mobile base model
+│   ├── rx200.urdf                # Trossen RX200 5-DOF articulated arm & gripper
 │   └── primitive_bot.urdf        # Benchmark kinematic validation model
 ├── web/                          # Three.js 3D web visualizer
 │   ├── index.html
 │   ├── viewer.js
-│   └── viewer.css
+│   ├── viewer.css
+│   └── js/
+│       ├── three.min.js
+│       ├── OrbitControls.js
+│       └── GLTFLoader.js         # Vendored Three.js r128 GLTF/GLB loader
 ├── scripts/
 │   ├── demo_portfolio.py         # Automated one-command interactive demo launcher
 │   ├── generate_portfolio_video.py # High-res headless demo recorder
-│   └── viewer.py                 # HTTP and TCP-to-viewer bridge
+│   └── viewer.py                 # HTTP, SSE and external robot bridge
 ├── portfolio/                    # Showcase page, video recordings & poster
 │   ├── index.html
 │   ├── poster.png
@@ -261,6 +281,115 @@ To run the visualizer bridge without starting the automated demo:
 make viewer
 # Open http://localhost:8092 in your browser
 ```
+
+---
+
+## Interfacing with Real Robots: MBot Omni & Trossen RX200 Arm
+
+This runtime includes full bidirectional communication clients for interfacing with physical hardware: an **MBot Omni** mobile robot over the **MBot Bridge** protocol and a **Trossen RX200** 5-DOF robotic manipulator over the **ROSBridge** protocol.
+
+The system features a unified **External Robot Gateway** where the host IP address (or domain name) and network port can be dynamically entered through the web frontend or configured via CLI. **Only one external robot connection (MBot Bridge or ROSBridge) is active at a time**, ensuring conflict-free topic mapping and deterministic telemetry.
+
+---
+
+### 1. MBot Omni Robot Navigation (MBot Bridge Protocol)
+
+The MBot Omni is an omnidirectional mobile robot running the course MBot Bridge WebSocket service. The client implementation (`bridges/mbot_client.py`) adheres to the specification in `bridges/mbot_websocket_spec.md`:
+
+- **Wire Protocol**: RFC 6455 WebSocket JSON frames at `ws://<mbot-host>:5005` (zero external Python dependencies).
+- **Coordinate Frames**: The robot navigates in the 2D SLAM map frame ($x$ forward, $y$ left, $\theta$ counter-clockwise).
+- **Core Operations**:
+  - **Read Pose**: Periodically requests channel `SLAM_POSE` (`pose2D_t`), converting $(x, y, \theta)$ to 3D quaternions on `/global_pose`. The C++ `WorldStatePublisher` composes this with the MBot URDF tree to render real-time translation and rotation in Three.js.
+  - **Read Map**: Requests channel `SLAM_MAP` (`occupancy_grid_t`) to fetch base64-encoded grid cells and origin metadata.
+  - **Path Following**: Publishes multi-waypoint trajectories to `CONTROLLER_PATH` (`path2D_t`) for execution by the robot's onboard controller.
+  - **Emergency Stop**: Instantly halts robot motion by publishing zero velocities to `MBOT_VEL_CMD` (`twist2D_t`).
+
+#### Launching the MBot Navigation System:
+
+A dedicated launch script, `launch_mbot_docker.bash`, builds upon the core Forward Kinematics runtime and initializes the MBot Bridge interface:
+
+```bash
+# Native execution connecting to MBot at IP 192.168.1.100 (port 5005)
+./launch_mbot_docker.bash 192.168.1.100 5005
+
+# Or using Make
+make mbot MBOT_HOST=192.168.1.100 MBOT_PORT=5005
+
+# Inside a Docker container with automatic port forwarding
+./launch_mbot_docker.bash --docker 192.168.1.100 5005
+```
+
+The script will:
+1. Build the C++ kinematics engine (`make build`).
+2. Start the communication hub (`./main --demo`) on `127.0.0.1:9095`.
+3. Launch the 3D visualizer server on `http://127.0.0.1:8092`.
+4. Automatically set `robot_description` to `robots/mbot/mbot.urdf`.
+5. Connect to the robot's MBot Bridge WebSocket server and stream live poses.
+
+#### Frontend Web Interface:
+1. Open `http://localhost:8092`.
+2. In the **External Robot Gateway** panel, select **MBot Omni (MBot Bridge)**.
+3. Enter the robot's IP (e.g., `192.168.1.100` or hostname `mbot.local`) and port `5005`.
+4. Click **⚡ Connect to External Robot**.
+5. Once connected, the live SLAM pose updates in real time. Enter target coordinates $(X, Y, \theta)$ and click **🚀 Send Navigation Path**, or trigger maneuvers like **Square (1m)**, **Fwd/Back**, or **Spin**.
+6. In case of obstacles, hit the high-visibility **🛑 EMERGENCY STOP** button.
+
+---
+
+### 2. Trossen RX200 Robot Arm (ROSBridge Protocol)
+
+The runtime connects to a physical **Trossen RX200** 5-DOF articulated manipulator via the ROSBridge client (`bridges/rosbridge_arm_client.py`), adhering to the setup described in the [ROB380 RX200 Tutorial](https://github.com/tianyiy-tim/rx200-rob380):
+
+- **Transport**: Supports both standard WebSocket (port 9090) and raw TCP newline-delimited JSON (port 9095) with auto-detection.
+- **Kinematics & Telemetry**: Subscribes to `/rx200/joint_states` and `/joint_states`. Received angles (`waist`, `shoulder`, `elbow`, `wrist_angle`, `wrist_rotate`, `left_finger`, `right_finger`) are fed into the C++ recursive forward kinematics engine, computing SE(3) link matrices published on `/xform_world`.
+- **Motion Execution**: Publishes multi-joint setpoints to `/rx200/joint_trajectory` (`trajectory_msgs/JointTrajectory`).
+
+#### Hardware Setup & Connection:
+1. Connect the RX200 arm via USB (U2D2 serial interface) and power with 12V DC.
+2. Launch the robot's ROS 2 driver and ROSBridge node on the robot controller:
+   ```bash
+   ros2 launch interbotix_xsarm_control xsarm_control.launch.py robot_model:=rx200
+   ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+   ```
+3. Launch the project's RX200 visualizer and interface runtime:
+   ```bash
+   # Connect to local rosbridge (127.0.0.1:9090):
+   make arm
+
+   # Connect to a physical robot over Wi-Fi / Ethernet:
+   make arm ARM_HOST=192.168.1.105 ARM_PORT=9090
+
+   # Or run the launch script directly:
+   ./launch_arm.bash 192.168.1.105 9090
+   ```
+4. Alternatively, use the 3D Viewer web interface:
+   - Open `http://127.0.0.1:8092`.
+   - In the **External Robot Gateway** panel, select **Trossen RX200 (ROSBridge / :9090 / :9095)**.
+   - Enter the robot's IP/hostname and port.
+   - Click **⚡ Connect to External Robot**. The active model switches to `rx200.urdf`.
+   - The digital twin mirrors the physical arm in real time from incoming `/joint_states`. Use presets (**Home Pose**, **Sleep Pose**, **Open Gripper**, **Close Gripper**) to control the arm.
+
+#### Mimicking Chess Pick-and-Place on the Trossen RX200:
+The runtime provides complete kinematic mapping from the original Chess Manipulator Arm portfolio to the Trossen RX200 arm, executing the **1. e2 ➔ e4** chess pawn pick-and-place move:
+- **Kinematic Models**:
+  - `urdf-files/rx200_chess.urdf` & `robots/rx200/rx200_chess.urdf`: Integrates the Trossen RX200 arm with the 8x8 chessboard and chess pieces (pawns, king, knight) with prismatic degrees of freedom for the pawn.
+  - `urdf-files/rx200.urdf` & `robots/rx200/rx200.urdf`: Standalone 12-DOF RX200 arm model.
+- **Choreography FSMs**:
+  - `fsm/rx200_chess_pick_and_place.json`: Full 9-DOF pick-and-place sequence animating both the RX200 arm and the pawn moving from e2 to e4 in the 3D visualizer.
+  - `fsm/rx200_chess_arm_only.json`: Pure 7-DOF arm sequence tailored for direct physical robot arm execution.
+- **Execution & Real-Time Sync**:
+  - Click **♟️ Execute Chess Move: Pick & Place (e2 ➔ e4)** in the RX200 panel on the 3D Viewer web interface, or select `rx200_chess_pick_and_place` from the FSM dropdown.
+  - Target trajectory setpoints are dispatched to the C++ Forward Kinematics engine and streamed over ROSBridge (`/rx200/joint_trajectory` and `/rx200/arm_controller/joint_trajectory`) so the physical arm mimics picking up the piece in real life in lockstep with the visualizer.
+
+---
+
+### 3. Robot Descriptions & URDF Verification
+
+- **MBot Omni Model**: Available at `robots/mbot/mbot.urdf` and `urdf-files/mbot.urdf`. Includes visual geometry linking to `robots/mbot/meshes/omni.glb` with accurate wheel pivots, lidar turret, and camera links.
+- **Trossen RX200 Model**: Available at `urdf-files/rx200.urdf`. Models 13 links and 12 joints with accurate joint limits and kinematics matching physical DYNAMIXEL actuators.
+- **URDF Repository Confirmation**:
+  > [!NOTE]
+  > Inspection of [TrossenRobotics/trossen_arm_description](https://github.com/TrossenRobotics/trossen_arm_description) confirms that repository hosts descriptions for the newer WidowX AI (`wxai`), `mobile_ai`, and `stationary_ai` arms. The **ReactorX 200 (RX200)** description is officially maintained under the Interbotix packages (`Interbotix/interbotix_ros_manipulators` -> `interbotix_xsarm_descriptions`) and the [ROB380 Course Repository](https://github.com/tianyiy-tim/rx200-rob380). The standalone validated `rx200.urdf` included in this repository has been verified against our zero-dependency C++ URDF parser and is ready for use out-of-the-box.
 
 ---
 
