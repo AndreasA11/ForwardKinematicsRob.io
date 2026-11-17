@@ -228,30 +228,6 @@
     }
   }
 
-  // Universal DOM helpers safe for text/xml and text/html DOMs (no :scope CSS selector dependency)
-  function getDirectChild(parent, tagName) {
-    if (!parent || !parent.children) return null;
-    const target = tagName.toLowerCase();
-    for (let i = 0; i < parent.children.length; i++) {
-      if (parent.children[i].tagName && parent.children[i].tagName.toLowerCase() === target) {
-        return parent.children[i];
-      }
-    }
-    return null;
-  }
-
-  function getDirectChildren(parent, tagName) {
-    const list = [];
-    if (!parent || !parent.children) return list;
-    const target = tagName.toLowerCase();
-    for (let i = 0; i < parent.children.length; i++) {
-      if (parent.children[i].tagName && parent.children[i].tagName.toLowerCase() === target) {
-        list.push(parent.children[i]);
-      }
-    }
-    return list;
-  }
-
   // --- URDF Parsing & Visual Geometry Construction ---
   function parseNumbers(str, count) {
     if (!str) return Array(count).fill(0);
@@ -262,40 +238,60 @@
     return nums.slice(0, count);
   }
 
+  function getChildTag(el, tag) {
+    if (!el || !el.children) return null;
+    const t = tag.toLowerCase();
+    for (let i = 0; i < el.children.length; i++) {
+      if (el.children[i].tagName && el.children[i].tagName.toLowerCase() === t) return el.children[i];
+    }
+    return null;
+  }
+
   function parseUrdf(urdfXml) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(urdfXml, "text/xml");
-    const robotEl = getDirectChild(doc, "robot") || doc.querySelector("robot");
-    if (!robotEl) return { linkDefs: new Map(), defaultTransforms: new Map(), rootLink: "" };
+    const robotEl = getChildTag(doc, "robot") || doc.querySelector("robot");
+    if (!robotEl) return new Map();
 
     // Map top-level named materials
     const topMaterials = new Map();
-    const matElements = getDirectChildren(robotEl, "material");
-    for (const matEl of matElements) {
+    for (let i = 0; i < robotEl.children.length; i++) {
+      const matEl = robotEl.children[i];
+      if (matEl.tagName.toLowerCase() !== "material") continue;
       const matName = matEl.getAttribute("name");
-      const colorEl = getDirectChild(matEl, "color");
+      const colorEl = getChildTag(matEl, "color") || matEl.querySelector("color");
       if (matName && colorEl && colorEl.getAttribute("rgba")) {
         topMaterials.set(matName, parseNumbers(colorEl.getAttribute("rgba"), 4));
       }
     }
 
     const linkDefs = new Map();
-    const linkElements = getDirectChildren(robotEl, "link");
-    for (const linkEl of linkElements) {
+
+    for (let i = 0; i < robotEl.children.length; i++) {
+      const linkEl = robotEl.children[i];
+      if (linkEl.tagName.toLowerCase() !== "link") continue;
       const linkName = linkEl.getAttribute("name");
       if (!linkName) continue;
 
       let visualData = null;
-      const visEl = getDirectChild(linkEl, "visual");
+      let visEl = getChildTag(linkEl, "visual");
+      if (!visEl) {
+        try { visEl = linkEl.querySelector(":scope > visual") || linkEl.querySelector("visual"); } catch (e) {}
+      }
+
       if (visEl) {
-        // Origin
-        const origEl = getDirectChild(visEl, "origin");
+        let origEl = getChildTag(visEl, "origin");
+        if (!origEl) {
+          try { origEl = visEl.querySelector(":scope > origin") || visEl.querySelector("origin"); } catch (e) {}
+        }
         const xyz = origEl ? parseNumbers(origEl.getAttribute("xyz"), 3) : [0, 0, 0];
         const rpy = origEl ? parseNumbers(origEl.getAttribute("rpy"), 3) : [0, 0, 0];
 
-        // Geometry
         let geomData = null;
-        const geomEl = getDirectChild(visEl, "geometry");
+        let geomEl = getChildTag(visEl, "geometry");
+        if (!geomEl) {
+          try { geomEl = visEl.querySelector(":scope > geometry") || visEl.querySelector("geometry"); } catch (e) {}
+        }
         if (geomEl && geomEl.children.length > 0) {
           const childEl = geomEl.children[0];
           const childTag = childEl.tagName.toLowerCase();
@@ -316,11 +312,16 @@
           }
         }
 
-        // Material color (local or top-level reference)
         let colorRgba = null;
-        const matEl = getDirectChild(visEl, "material");
+        let matEl = getChildTag(visEl, "material");
+        if (!matEl) {
+          try { matEl = visEl.querySelector(":scope > material") || visEl.querySelector("material"); } catch (e) {}
+        }
         if (matEl) {
-          const colorEl = getDirectChild(matEl, "color");
+          let colorEl = getChildTag(matEl, "color");
+          if (!colorEl) {
+            try { colorEl = matEl.querySelector("color"); } catch (e) {}
+          }
           if (colorEl && colorEl.getAttribute("rgba")) {
             colorRgba = parseNumbers(colorEl.getAttribute("rgba"), 4);
           } else if (matEl.getAttribute("name") && topMaterials.has(matEl.getAttribute("name"))) {
@@ -334,81 +335,18 @@
       linkDefs.set(linkName, { name: linkName, visual: visualData });
     }
 
-    // Parse joints to compute zero-joint default forward kinematics
-    const joints = [];
-    const childLinks = new Set();
-    const jointElements = getDirectChildren(robotEl, "joint");
-    for (const jEl of jointElements) {
-      const jName = jEl.getAttribute("name") || "";
-      const jType = jEl.getAttribute("type") || "fixed";
-      const parentEl = getDirectChild(jEl, "parent");
-      const childEl = getDirectChild(jEl, "child");
-      const origEl = getDirectChild(jEl, "origin");
-
-      const parentLink = parentEl ? parentEl.getAttribute("link") : null;
-      const childLink = childEl ? childEl.getAttribute("link") : null;
-      if (!parentLink || !childLink) continue;
-
-      const xyz = origEl ? parseNumbers(origEl.getAttribute("xyz"), 3) : [0, 0, 0];
-      const rpy = origEl ? parseNumbers(origEl.getAttribute("rpy"), 3) : [0, 0, 0];
-
-      joints.push({ name: jName, type: jType, parent: parentLink, child: childLink, xyz, rpy });
-      childLinks.add(childLink);
-    }
-
-    // Determine root links (links that are never a child of any joint)
-    let rootLinks = [];
-    for (const name of linkDefs.keys()) {
-      if (!childLinks.has(name)) {
-        rootLinks.push(name);
-      }
-    }
-    if (rootLinks.length === 0 && linkDefs.size > 0) {
-      rootLinks.push(linkDefs.keys().next().value);
-    }
-
-    // Build adjacency: parent -> list of child joints
-    const adj = new Map();
-    for (const j of joints) {
-      if (!adj.has(j.parent)) adj.set(j.parent, []);
-      adj.get(j.parent).push(j);
-    }
-
-    // Compute default world transform for each link (BFS from root with zero joint displacement)
-    const defaultTransforms = new Map();
-    for (const root of rootLinks) {
-      const queue = [{ link: root, matrix: new THREE.Matrix4().identity() }];
-      defaultTransforms.set(root, new THREE.Matrix4().identity());
-
-      while (queue.length > 0) {
-        const { link: currLink, matrix: currMat } = queue.shift();
-        const children = adj.get(currLink) || [];
-        for (const edge of children) {
-          const relMat = new THREE.Matrix4();
-          const pos = new THREE.Vector3(edge.xyz[0], edge.xyz[1], edge.xyz[2]);
-          const rot = new THREE.Euler(edge.rpy[0], edge.rpy[1], edge.rpy[2], 'ZYX');
-          const quat = new THREE.Quaternion().setFromEuler(rot);
-          relMat.compose(pos, quat, new THREE.Vector3(1, 1, 1));
-
-          const childMat = new THREE.Matrix4().multiplyMatrices(currMat, relMat);
-          defaultTransforms.set(edge.child, childMat);
-          queue.push({ link: edge.child, matrix: childMat });
-        }
-      }
-    }
-
-    return { linkDefs, defaultTransforms, rootLink: rootLinks[0] || "" };
+    return linkDefs;
   }
 
   function createVisualMesh(linkName, visualData) {
     if (!visualData || !visualData.geom) {
-      // Clean invisible container for virtual frames
+      // Invisible frame helper
       return new THREE.Group();
     }
 
     let geometry = null;
     const g = visualData.geom;
-    const n = linkName.toLowerCase();
+    const n = (linkName || "").toLowerCase();
 
     if (g.type === "box") {
       geometry = new THREE.BoxGeometry(g.size[0], g.size[1], g.size[2]);
@@ -420,47 +358,53 @@
       geometry = new THREE.SphereGeometry(g.radius, 32, 16);
     } else if (g.type === "mesh") {
       const fn = (g.filename || "").toLowerCase();
-      if ((fn.includes('omni') || fn.includes('mbot')) && (n.includes('base_link') || n.includes('chassis'))) {
-        geometry = new THREE.CylinderGeometry(0.10, 0.10, 0.08, 32);
-        geometry.rotateX(Math.PI / 2);
-      } else if (n.includes('wheel')) {
-        geometry = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 24);
-        geometry.rotateX(Math.PI / 2);
-      } else if (n.includes('lidar')) {
-        geometry = new THREE.CylinderGeometry(0.035, 0.035, 0.04, 24);
-        geometry.rotateX(Math.PI / 2);
-      } else if (n.includes('base_link') || fn.includes('base')) {
-        geometry = new THREE.CylinderGeometry(0.065, 0.070, 0.035, 32);
-        geometry.rotateX(Math.PI / 2);
+
+      // Sleek, proportional box sizes tailored to each robot arm segment
+      // Avoids oversized 12cm overlapping cubes so each link is clearly distinguishable
+      let boxSize = [0.04, 0.04, 0.04];
+      let boxOffset = [0, 0, 0];
+
+      if (n.includes('base_link') || fn.includes('base')) {
+        boxSize = [0.09, 0.09, 0.035];
+        boxOffset = [0, 0, 0.015];
       } else if (n.includes('shoulder') || fn.includes('shoulder')) {
-        geometry = new THREE.CylinderGeometry(0.038, 0.042, 0.045, 24);
-        geometry.rotateX(Math.PI / 2);
+        boxSize = [0.05, 0.05, 0.045];
+        boxOffset = [0, 0, 0.02];
       } else if (n.includes('upper_arm') || fn.includes('upper')) {
-        geometry = new THREE.CylinderGeometry(0.024, 0.026, 0.20, 24);
-        geometry.rotateX(Math.PI / 2);
-        geometry.rotateY(0.245);
-        if (visualData.xyz[2] === 0) geometry.translate(0.025, 0, 0.10);
+        // Upper arm boom spans from shoulder toward elbow (length ~0.20m)
+        boxSize = [0.032, 0.032, 0.18];
+        boxOffset = [0.025, 0, 0.09];
       } else if (n.includes('forearm') || fn.includes('forearm')) {
-        geometry = new THREE.CylinderGeometry(0.020, 0.022, 0.19, 24);
-        geometry.rotateZ(Math.PI / 2);
-        if (visualData.xyz[0] === 0) geometry.translate(0.10, 0, 0);
+        // Forearm boom spans forward along +X toward wrist (length ~0.19m)
+        boxSize = [0.18, 0.028, 0.028];
+        boxOffset = [0.09, 0, 0];
       } else if (n.includes('wrist') || fn.includes('wrist')) {
-        geometry = new THREE.CylinderGeometry(0.016, 0.018, 0.055, 20);
-        geometry.rotateZ(Math.PI / 2);
-        if (visualData.xyz[0] === 0) geometry.translate(0.032, 0, 0);
-      } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('prop') && !n.includes('bar')) {
-        geometry = new THREE.BoxGeometry(0.035, 0.052, 0.026);
-        if (visualData.xyz[0] === 0) geometry.translate(0.018, 0, 0);
-      } else if (n.includes('finger')) {
-        geometry = new THREE.BoxGeometry(0.032, 0.008, 0.016);
-        if (visualData.xyz[0] === 0) {
-          const yOff = n.includes('left') ? 0.005 : -0.005;
-          geometry.translate(0.018, yOff, 0);
-        }
-      } else if (n.includes('prop') || n.includes('bar') || n.includes('ee_') || n.includes('carrier')) {
-        return new THREE.Group();
+        // Wrist segment along +X (length ~0.055m)
+        boxSize = [0.05, 0.024, 0.024];
+        boxOffset = [0.025, 0, 0];
+      } else if (n.includes('gripper') && !n.includes('finger') && !n.includes('bar') && !n.includes('prop')) {
+        // Gripper palm housing
+        boxSize = [0.035, 0.048, 0.024];
+        boxOffset = [0.015, 0, 0];
+      } else if (n.includes('finger') || fn.includes('finger')) {
+        // Gripper finger jaws
+        boxSize = [0.028, 0.007, 0.014];
+        const yOff = n.includes('left') ? 0.004 : (n.includes('right') ? -0.004 : 0);
+        boxOffset = [0.014, yOff, 0];
+      } else if (n.includes('bar') || n.includes('prop') || n.includes('ee_')) {
+        boxSize = [0.012, 0.018, 0.012];
       } else {
-        geometry = new THREE.CylinderGeometry(0.014, 0.014, 0.05, 16);
+        boxSize = [0.04, 0.04, 0.04];
+      }
+
+      geometry = new THREE.BoxGeometry(boxSize[0], boxSize[1], boxSize[2]);
+      const ox0 = visualData.xyz[0];
+      const oy0 = visualData.xyz[1];
+      const oz0 = visualData.xyz[2];
+      if (ox0 === 0 && oy0 === 0 && oz0 === 0) {
+        if (boxOffset[0] !== 0 || boxOffset[1] !== 0 || boxOffset[2] !== 0) {
+          geometry.translate(boxOffset[0], boxOffset[1], boxOffset[2]);
+        }
       }
     }
 
@@ -476,7 +420,7 @@
     const material = new THREE.MeshStandardMaterial({
       color: matColor,
       roughness: 0.35,
-      metalness: (n.includes('finger') || n.includes('wrist')) ? 0.6 : 0.25,
+      metalness: 0.25,
       opacity: opacity,
       transparent: opacity < 1.0
     });
@@ -517,53 +461,18 @@
     const group = new THREE.Group();
     group.add(mesh);
 
-    // Asynchronously load GLTF / GLB model if available
-    if (g && g.type === "mesh" && typeof THREE.GLTFLoader !== "undefined") {
-      let meshUrl = g.filename || "";
-      if (meshUrl.startsWith("package://mbot/")) {
-        meshUrl = meshUrl.replace("package://mbot/", "robots/mbot/");
-      } else if (meshUrl.startsWith("meshes/")) {
-        meshUrl = "robots/mbot/" + meshUrl;
-      }
-      if (!meshUrl.startsWith("http") && !meshUrl.startsWith("/")) {
-        meshUrl = "/" + meshUrl;
-      }
-      if (meshUrl.endsWith(".glb") || meshUrl.endsWith(".gltf")) {
-        try {
-          const loader = new THREE.GLTFLoader();
-          loader.load(meshUrl, (gltf) => {
-            const model = gltf.scene;
-            if (g.scale && g.scale.length === 3) {
-              model.scale.set(g.scale[0], g.scale[1], g.scale[2]);
-            }
-            model.position.set(ox, oy, oz);
-            model.rotation.setFromEuler(new THREE.Euler(roll, pitch, yaw, 'ZYX'));
-            model.traverse((child) => {
-              if (child.isMesh) {
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            });
-            group.remove(mesh);
-            group.add(model);
-          }, undefined, () => {});
-        } catch (e) {}
-      }
-    }
-
-    // Articulated Arm Spherical Ball Joints (balls at each joint pivot matching Portfolio Video)
-    if (n.includes('base_link') || n.includes('shoulder') ||
-        n.includes('upper_arm') || n.includes('forearm') ||
-        n.includes('wrist')) {
-      const ballRadius = n.includes('base_link') ? 0.045 :
-                         n.includes('shoulder') ? 0.038 :
-                         n.includes('upper') ? 0.030 :
-                         n.includes('forearm') ? 0.025 : 0.020;
+    // Spherical ball joints at joint pivots
+    if (linkName === 'arm_base_link' || n.includes('base_link') || n.includes('shoulder') ||
+        n.includes('upper_arm') || n.includes('forearm') || n.includes('wrist')) {
+      const ballRadius = (linkName === 'arm_base_link' || n.includes('base_link')) ? 0.045 :
+                         n.includes('shoulder') ? 0.036 :
+                         n.includes('upper') ? 0.028 :
+                         n.includes('forearm') ? 0.024 : 0.018;
       const ballGeom = new THREE.SphereGeometry(ballRadius, 24, 16);
       const ballMat = new THREE.MeshStandardMaterial({
         color: 0xd8dde8,
-        metalness: 0.90,
-        roughness: 0.15
+        metalness: 0.85,
+        roughness: 0.2
       });
       const ballMesh = new THREE.Mesh(ballGeom, ballMat);
       ballMesh.castShadow = true;
@@ -575,7 +484,7 @@
       const headRadius = linkName.includes('king') ? 0.015 : 0.011;
       const headGeom = new THREE.SphereGeometry(headRadius, 20, 16);
       const headMesh = new THREE.Mesh(headGeom, material);
-      const cylLen = g.length || 0.036;
+      const cylLen = (g && g.length) ? g.length : 0.036;
       headMesh.position.set(ox, oy, oz + cylLen / 2 + headRadius * 0.7);
       headMesh.castShadow = true;
       group.add(headMesh);
@@ -590,7 +499,7 @@
       }
     }
 
-    // Add subtle axis indicator to root base only
+    // Subtle axis indicator on root base only
     if (linkName === 'arm_base_link' || linkName === 'table_base' || linkName === 'rx200/base_link') {
       const axes = new THREE.AxesHelper(0.06);
       group.add(axes);
@@ -600,11 +509,8 @@
   }
 
   function rebuildRobotScene(urdfXml) {
-    if (!urdfXml) return;
     activeRobotDescription = urdfXml;
-    const parsed = parseUrdf(urdfXml);
-    const linkDefs = parsed.linkDefs || new Map();
-    const defaultTransforms = parsed.defaultTransforms || new Map();
+    const linkDefs = parseUrdf(urdfXml);
 
     // 1. Purge stale link objects not in new URDF
     for (const [name, obj] of linkObjects.entries()) {
@@ -635,26 +541,6 @@
 
       const visualNode = createVisualMesh(name, def.visual);
       linkGroup.add(visualNode);
-
-      // Pre-initialize link transform using zero-joint default forward kinematics
-      // Ensures robot arm, chessboard, table, and pieces are 100% visible immediately upon load!
-      const defMat = defaultTransforms.get(name) || new THREE.Matrix4().identity();
-      if (!linkGroup.targetPos) {
-        linkGroup.targetPos = new THREE.Vector3();
-        linkGroup.targetQuat = new THREE.Quaternion();
-        linkGroup.targetScale = new THREE.Vector3(1, 1, 1);
-        linkGroup.currentPos = new THREE.Vector3();
-        linkGroup.currentQuat = new THREE.Quaternion();
-        linkGroup.currentScale = new THREE.Vector3(1, 1, 1);
-      }
-      defMat.decompose(linkGroup.targetPos, linkGroup.targetQuat, linkGroup.targetScale);
-      linkGroup.currentPos.copy(linkGroup.targetPos);
-      linkGroup.currentQuat.copy(linkGroup.targetQuat);
-      linkGroup.currentScale.copy(linkGroup.targetScale);
-      linkGroup.matrix.copy(defMat);
-      linkGroup.matrixWorldNeedsUpdate = true;
-      linkGroup.hasInitialPose = true;
-      linkGroup.hasLivePose = false;
     }
 
     updateLinkCountBadge();
@@ -688,9 +574,17 @@
 
       let linkObj = linkObjects.get(linkName);
       if (!linkObj) {
+        // If link was not yet created from URDF, create default placeholder
         linkObj = new THREE.Group();
         linkObj.name = linkName;
         linkObj.matrixAutoUpdate = false;
+        const fallbackGeom = new THREE.BoxGeometry(0.035, 0.035, 0.035);
+        const fallbackMat = new THREE.MeshStandardMaterial({
+          color: getFallbackColor(linkName),
+          roughness: 0.4
+        });
+        const m = new THREE.Mesh(fallbackGeom, fallbackMat);
+        linkObj.add(m);
         robotRootGroup.add(linkObj);
         linkObjects.set(linkName, linkObj);
         updateLinkCountBadge();
@@ -704,22 +598,20 @@
         linkObj.currentQuat = new THREE.Quaternion();
         linkObj.currentScale = new THREE.Vector3(1, 1, 1);
         linkObj.hasInitialPose = false;
-        linkObj.hasLivePose = false;
       }
 
       // Decompose target matrix into position, quaternion, scale
       _tmpMatrix.fromArray(matrixArr);
       _tmpMatrix.decompose(linkObj.targetPos, linkObj.targetQuat, linkObj.targetScale);
 
-      // On first live pose or major teleport, snap directly to avoid lerping across scene
-      if (!linkObj.hasLivePose) {
+      // On first pose or instant reset, snap directly
+      if (!linkObj.hasInitialPose) {
         linkObj.currentPos.copy(linkObj.targetPos);
         linkObj.currentQuat.copy(linkObj.targetQuat);
         linkObj.currentScale.copy(linkObj.targetScale);
         linkObj.matrix.fromArray(matrixArr);
         linkObj.matrixWorldNeedsUpdate = true;
         linkObj.hasInitialPose = true;
-        linkObj.hasLivePose = true;
       }
 
       // Update Inspector if this link is selected
